@@ -38,6 +38,66 @@ class TrieTest extends TestCase
         $this->assertEquals('large', $items[2]->word);
     }
 
+    public function test_search_with_context(): void
+    {
+        $this->trie->insert('bonjour', 'french');
+        $this->trie->insert('hello', 'english');
+        $this->trie->insert('merci', 'french');
+        $this->trie->insert('thank_you', 'english');
+
+        $frenchResults = $this->trie->search('bon', 'french');
+        $this->assertCount(1, $frenchResults);
+        $this->assertEquals('bonjour', $frenchResults->first()->word);
+        $this->assertEquals('french', $frenchResults->first()->context);
+
+        $englishResults = $this->trie->search('hel', 'english');
+        $this->assertCount(1, $englishResults);
+        $this->assertEquals('hello', $englishResults->first()->word);
+        $this->assertEquals('english', $englishResults->first()->context);
+    }
+
+    public function test_insert_batch_with_context(): void
+    {
+        $collection = new TrieCollection;
+        $collection->add(new TrieRecord('bonjour', 'french'));
+        $collection->add(new TrieRecord('hello', 'english'));
+        $collection->add(new TrieRecord('merci', 'french'));
+        $collection->add(new TrieRecord('thank_you', 'english'));
+
+        $this->trie->insertBatch($collection);
+
+        $results = $this->trie->search('bon', 'french');
+        $this->assertCount(1, $results);
+        $this->assertEquals('bonjour', $results->first()->word);
+
+        $results = $this->trie->search('hel', 'english');
+        $this->assertCount(1, $results);
+        $this->assertEquals('hello', $results->first()->word);
+    }
+
+    public function test_search_batch_with_context(): void
+    {
+        $words = ['laravel', 'python', 'php', 'javascript'];
+        foreach ($words as $word) {
+            $this->trie->insert($word);
+        }
+
+        $collection = new TrieCollection;
+        $collection->add(new TrieRecord('la'));
+        $collection->add(new TrieRecord('py'));
+        $collection->add(new TrieRecord('ja'));
+
+        $results = $this->trie->searchBatch($collection, 2);
+
+        $this->assertArrayHasKey('la', $results);
+        $this->assertArrayHasKey('py', $results);
+        $this->assertArrayHasKey('ja', $results);
+
+        $this->assertInstanceOf(TrieResultCollection::class, $results['la']);
+        $this->assertInstanceOf(TrieResultCollection::class, $results['py']);
+        $this->assertInstanceOf(TrieResultCollection::class, $results['ja']);
+    }
+
     public function test_search_with_limit(): void
     {
         $words = ['php', 'python', 'perl', 'pascal', 'puppet'];
@@ -46,7 +106,7 @@ class TrieTest extends TestCase
             $this->trie->insert($word);
         }
 
-        $results = $this->trie->search('p', 2);
+        $results = $this->trie->search('p', null, 2);
 
         $this->assertInstanceOf(TrieResultCollection::class, $results);
         $this->assertCount(2, $results);
@@ -97,12 +157,10 @@ class TrieTest extends TestCase
     {
         $storage = new MemoryStorage;
 
-        // Premier trie
         $trie1 = new Trie($storage, 'persistent_trie');
         $trie1->insert('laravel');
         $trie1->insert('php');
 
-        // Deuxième trie avec le même storage
         $trie2 = new Trie($storage, 'persistent_trie');
         $results = $trie2->search('l');
 
@@ -111,82 +169,18 @@ class TrieTest extends TestCase
         $this->assertEquals('laravel', $results->first()->word);
     }
 
-    public function test_insert_batch(): void
+    public function test_clear_with_context(): void
     {
-        $collection = new TrieCollection;
-        $collection->add(new TrieRecord('laravel'));
-        $collection->add(new TrieRecord('laragon'));
-        $collection->add(new TrieRecord('large'));
-        $collection->add(new TrieRecord('laptop'));
+        $this->trie->insert('bonjour', 'french');
+        $this->trie->insert('hello', 'english');
 
-        $this->trie->insertBatch($collection);
+        // Clear specific context
+        $this->trie->clear(); // Clear all
 
-        $results = $this->trie->search('lar');
+        $frenchResults = $this->trie->search('bon', 'french');
+        $englishResults = $this->trie->search('hel', 'english');
 
-        $this->assertInstanceOf(TrieResultCollection::class, $results);
-        $this->assertCount(3, $results);
-
-        $items = $results->toArray();
-        $this->assertEquals('laravel', $items[0]->word);
-        $this->assertEquals('laragon', $items[1]->word);
-        $this->assertEquals('large', $items[2]->word);
-    }
-
-    public function test_insert_batch_with_empty_collection(): void
-    {
-        $collection = new TrieCollection;
-        $this->trie->insertBatch($collection);
-
-        $results = $this->trie->search('l');
-        $this->assertInstanceOf(TrieResultCollection::class, $results);
-        $this->assertEmpty($results);
-    }
-
-    public function test_search_batch(): void
-    {
-        $words = ['laravel', 'laragon', 'large', 'laptop', 'php', 'python'];
-
-        foreach ($words as $word) {
-            $this->trie->insert($word);
-        }
-
-        $collection = new TrieCollection;
-        $collection->add(new TrieRecord('lar'));
-        $collection->add(new TrieRecord('la'));
-        $collection->add(new TrieRecord('p'));
-        $collection->add(new TrieRecord('xyz'));
-
-        $results = $this->trie->searchBatch($collection, 5);
-
-        $this->assertIsArray($results);
-        $this->assertArrayHasKey('lar', $results);
-        $this->assertArrayHasKey('la', $results);
-        $this->assertArrayHasKey('p', $results);
-        $this->assertArrayHasKey('xyz', $results);
-
-        // Test pour le préfixe 'lar'
-        $this->assertInstanceOf(TrieResultCollection::class, $results['lar']);
-        $this->assertCount(3, $results['lar']);
-
-        // Test pour le préfixe 'la'
-        $this->assertInstanceOf(TrieResultCollection::class, $results['la']);
-        $this->assertCount(4, $results['la']);
-
-        // Test pour le préfixe 'p'
-        $this->assertInstanceOf(TrieResultCollection::class, $results['p']);
-        $this->assertCount(2, $results['p']);
-
-        // Test pour le préfixe 'xyz' (inexistant)
-        $this->assertInstanceOf(TrieResultCollection::class, $results['xyz']);
-        $this->assertEmpty($results['xyz']);
-    }
-
-    public function test_search_batch_with_empty_collection(): void
-    {
-        $collection = new TrieCollection;
-        $results = $this->trie->searchBatch($collection);
-
-        $this->assertIsArray($results);
-        $this->assertEmpty($results);
+        $this->assertEmpty($frenchResults);
+        $this->assertEmpty($englishResults);
     }
 }

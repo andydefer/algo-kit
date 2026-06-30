@@ -30,6 +30,18 @@ class CountMinSketchTest extends TestCase
         $this->assertEquals(0, $this->cms->count('python'));
     }
 
+    public function test_add_and_count_with_context(): void
+    {
+        $this->cms->add('laravel', 'framework');
+        $this->cms->add('laravel', 'framework');
+        $this->cms->add('php', 'language');
+
+        $this->assertEquals(2, $this->cms->count('laravel', 'framework'));
+        $this->assertEquals(0, $this->cms->count('laravel', 'language'));
+        $this->assertEquals(1, $this->cms->count('php', 'language'));
+        $this->assertEquals(0, $this->cms->count('php', 'framework'));
+    }
+
     public function test_multiple_adds(): void
     {
         for ($i = 0; $i < 100; $i++) {
@@ -93,6 +105,22 @@ class CountMinSketchTest extends TestCase
         $this->assertEquals(0, $this->cms->count('javascript'));
     }
 
+    public function test_add_batch_with_context(): void
+    {
+        $collection = new CountMinSketchCollection;
+        $collection->add(new CountMinSketchRecord('laravel', 'framework'));
+        $collection->add(new CountMinSketchRecord('laravel', 'framework'));
+        $collection->add(new CountMinSketchRecord('php', 'language'));
+
+        $this->cms->addBatch($collection);
+
+        // 🔥 DEBUG
+
+        $this->assertEquals(2, $this->cms->count('laravel', 'framework'));
+        $this->assertEquals(0, $this->cms->count('laravel', 'language'));
+        $this->assertEquals(1, $this->cms->count('php', 'language'));
+    }
+
     public function test_count_batch(): void
     {
         $this->cms->add('laravel');
@@ -114,15 +142,34 @@ class CountMinSketchTest extends TestCase
         $items = $results->toArray();
         $this->assertEquals(2, $items[0]->count);
         $this->assertEquals('laravel', $items[0]->value);
-
         $this->assertEquals(1, $items[1]->count);
         $this->assertEquals('php', $items[1]->value);
-
         $this->assertEquals(0, $items[2]->count);
         $this->assertEquals('javascript', $items[2]->value);
-
         $this->assertEquals(1, $items[3]->count);
         $this->assertEquals('python', $items[3]->value);
+    }
+
+    public function test_count_batch_with_context(): void
+    {
+        $this->cms->add('laravel', 'framework');
+        $this->cms->add('laravel', 'framework');
+        $this->cms->add('php', 'language');
+
+        $collection = new CountMinSketchCollection;
+        $collection->add(new CountMinSketchRecord('laravel', 'framework'));
+        $collection->add(new CountMinSketchRecord('laravel', 'language'));
+        $collection->add(new CountMinSketchRecord('php', 'language'));
+
+        $results = $this->cms->countBatch($collection);
+
+        $items = $results->toArray();
+        $this->assertEquals(2, $items[0]->count);
+        $this->assertEquals('framework', $items[0]->context);
+        $this->assertEquals(0, $items[1]->count);
+        $this->assertEquals('language', $items[1]->context);
+        $this->assertEquals(1, $items[2]->count);
+        $this->assertEquals('language', $items[2]->context);
     }
 
     public function test_count_batch_with_empty_collection(): void

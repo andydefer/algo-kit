@@ -7,6 +7,7 @@ use AndyDefer\DomainStructures\Abstracts\AbstractRecord;
 class TrieResultRecord extends AbstractRecord
 {
     public function __construct(
-        public string $word
+        public string $word,
+        public ?string $context = null
     ) {}
 }

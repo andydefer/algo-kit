@@ -26,6 +26,17 @@ class BloomFilterTest extends TestCase
         $this->assertFalse($this->bloom->exists('python'));
     }
 
+    public function test_insert_and_exists_with_context(): void
+    {
+        $this->bloom->insert('laravel', 'framework');
+        $this->bloom->insert('python', 'language');
+
+        $this->assertTrue($this->bloom->exists('laravel', 'framework'));
+        $this->assertFalse($this->bloom->exists('laravel', 'language'));
+        $this->assertTrue($this->bloom->exists('python', 'language'));
+        $this->assertFalse($this->bloom->exists('python', 'framework'));
+    }
+
     public function test_multiple_inserts(): void
     {
         $words = ['php', 'python', 'laravel', 'javascript'];
@@ -43,7 +54,6 @@ class BloomFilterTest extends TestCase
 
     public function test_false_positives(): void
     {
-        // Avec une petite taille pour forcer les collisions
         $storage = new MemoryStorage;
         $smallBloom = new BloomFilter($storage, 10, 3, 'small_bloom');
 
@@ -51,8 +61,6 @@ class BloomFilterTest extends TestCase
         $smallBloom->insert('b');
         $smallBloom->insert('c');
 
-        // Peut avoir des faux positifs
-        // On vérifie juste que ça existe toujours
         $this->assertTrue($smallBloom->exists('a'));
         $this->assertTrue($smallBloom->exists('b'));
         $this->assertTrue($smallBloom->exists('c'));
@@ -96,6 +104,21 @@ class BloomFilterTest extends TestCase
         $this->assertFalse($this->bloom->exists('javascript'));
     }
 
+    public function test_insert_batch_with_context(): void
+    {
+        $collection = new BloomFilterCollection;
+        $collection->add(new BloomFilterRecord('laravel', 'framework'));
+        $collection->add(new BloomFilterRecord('php', 'language'));
+        $collection->add(new BloomFilterRecord('laravel', 'language'));
+
+        $this->bloom->insertBatch($collection);
+
+        $this->assertTrue($this->bloom->exists('laravel', 'framework'));
+        $this->assertTrue($this->bloom->exists('php', 'language'));
+        $this->assertTrue($this->bloom->exists('laravel', 'language'));
+        $this->assertFalse($this->bloom->exists('laravel', 'database'));
+    }
+
     public function test_exists_batch(): void
     {
         $this->bloom->insert('laravel');
@@ -125,6 +148,27 @@ class BloomFilterTest extends TestCase
 
         $this->assertTrue($items[3]->exists);
         $this->assertEquals('python', $items[3]->value);
+    }
+
+    public function test_exists_batch_with_context(): void
+    {
+        $this->bloom->insert('laravel', 'framework');
+        $this->bloom->insert('php', 'language');
+
+        $collection = new BloomFilterCollection;
+        $collection->add(new BloomFilterRecord('laravel', 'framework'));
+        $collection->add(new BloomFilterRecord('laravel', 'language'));
+        $collection->add(new BloomFilterRecord('php', 'language'));
+
+        $results = $this->bloom->existsBatch($collection);
+
+        $items = $results->toArray();
+        $this->assertTrue($items[0]->exists);
+        $this->assertEquals('framework', $items[0]->context);
+        $this->assertFalse($items[1]->exists);
+        $this->assertEquals('language', $items[1]->context);
+        $this->assertTrue($items[2]->exists);
+        $this->assertEquals('language', $items[2]->context);
     }
 
     public function test_exists_batch_with_empty_collection(): void

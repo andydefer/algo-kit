@@ -23,48 +23,72 @@ class HyperLogLog implements HyperLogLogInterface
         $this->m = 1 << $precision;
 
         if (! $this->storage->exists($this->key)) {
-            $this->storage->set($this->key, array_fill(0, $this->m, 0));
+            $this->storage->set($this->key, []);
         }
     }
 
-    private function &getRegisters(): array
+    private function getRegisters(?string $context = null): array
     {
-        $registers = $this->storage->get($this->key, array_fill(0, $this->m, 0));
+        $contextKey = $context !== null ? $this->key.'_'.$context : $this->key;
+
+        if (! $this->storage->exists($contextKey)) {
+            $registers = array_fill(0, $this->m, 0);
+            $this->storage->set($contextKey, $registers);
+
+            if ($context !== null) {
+                $this->addContextToList($context);
+            }
+
+            return $registers;
+        }
+
+        $registers = $this->storage->get($contextKey);
+
+        if ($registers === null || ! is_array($registers) || count($registers) !== $this->m) {
+            $registers = array_fill(0, $this->m, 0);
+            $this->storage->set($contextKey, $registers);
+        }
 
         return $registers;
     }
 
-    private function saveRegisters(array $registers): void
+    private function saveRegisters(array $registers, ?string $context = null): void
     {
-        $this->storage->set($this->key, $registers);
+        $contextKey = $context !== null ? $this->key.'_'.$context : $this->key;
+        $this->storage->set($contextKey, $registers);
     }
 
-    public function add(string $value): void
+    private function getContextList(): array
     {
-        $registers = $this->getRegisters();
+        return $this->storage->get($this->key.'_contexts', []);
+    }
 
-        $hash = $this->hash($value);
-        $index = $hash & ($this->m - 1);
-        $w = $hash >> $this->p;
-
-        $rank = $this->leadingZeros($w) + 1;
-
-        if ($rank > $registers[$index]) {
-            $registers[$index] = $rank;
-            $this->saveRegisters($registers);
+    private function addContextToList(string $context): void
+    {
+        $contexts = $this->storage->get($this->key.'_contexts', []);
+        if (! in_array($context, $contexts)) {
+            $contexts[] = $context;
+            $this->storage->set($this->key.'_contexts', $contexts);
         }
     }
 
-    public function count(): int
+    private function calculateCount(array $registers): int
     {
-        $registers = $this->getRegisters();
+        if (empty($registers) || ! is_array($registers) || count($registers) === 0) {
+            return 0;
+        }
 
         $sum = 0;
         foreach ($registers as $register) {
             $sum += pow(2, -$register);
         }
 
-        $estimate = (0.7213 / (1 + 1.079 / $this->m)) * $this->m * $this->m / $sum;
+        if ($sum == 0) {
+            return 0;
+        }
+
+        $alpha = 0.7213 / (1 + 1.079 / $this->m);
+        $estimate = $alpha * $this->m * $this->m / $sum;
 
         if ($estimate <= 2.5 * $this->m) {
             $zeros = 0;
@@ -81,12 +105,60 @@ class HyperLogLog implements HyperLogLogInterface
         return (int) $estimate;
     }
 
+    public function add(string $value, ?string $context = null): void
+    {
+        $registers = $this->getRegisters($context);
+
+        $hash = $this->hash($value);
+        $index = $hash & ($this->m - 1);
+        $w = $hash >> $this->p;
+
+        $rank = $this->leadingZeros($w) + 1;
+
+        if ($rank > $registers[$index]) {
+            $registers[$index] = $rank;
+            $this->saveRegisters($registers, $context);
+        }
+    }
+
+    public function count(?string $context = null): int
+    {
+        // Contexte spécifique
+        if ($context !== null) {
+            $registers = $this->getRegisters($context);
+
+            return $this->calculateCount($registers);
+        }
+
+        // Contexte global = somme de tout
+        $total = 0;
+
+        // 1. Données globales
+        $globalRegisters = $this->getRegisters(null);
+        $total += $this->calculateCount($globalRegisters);
+
+        // 2. Tous les contextes
+        foreach ($this->getContextList() as $contextName) {
+            $total += $this->count($contextName);
+        }
+
+        return $total;
+    }
+
     public function addBatch(HyperLogLogCollection $collection): void
     {
-        $registers = $this->getRegisters();
-        $dirty = false;
+        $registersByContext = [];
+        $dirty = [];
 
         foreach ($collection as $record) {
+            $contextKey = $record->context ?? 'global';
+
+            if (! isset($registersByContext[$contextKey])) {
+                $registersByContext[$contextKey] = $this->getRegisters($record->context);
+                $dirty[$contextKey] = false;
+            }
+            $registers = &$registersByContext[$contextKey];
+
             $hash = $this->hash($record->value);
             $index = $hash & ($this->m - 1);
             $w = $hash >> $this->p;
@@ -95,12 +167,15 @@ class HyperLogLog implements HyperLogLogInterface
 
             if ($rank > $registers[$index]) {
                 $registers[$index] = $rank;
-                $dirty = true;
+                $dirty[$contextKey] = true;
             }
         }
 
-        if ($dirty) {
-            $this->saveRegisters($registers);
+        foreach ($registersByContext as $contextKey => $registers) {
+            if ($dirty[$contextKey]) {
+                $context = $contextKey !== 'global' ? $contextKey : null;
+                $this->saveRegisters($registers, $context);
+            }
         }
     }
 
@@ -108,16 +183,9 @@ class HyperLogLog implements HyperLogLogInterface
     {
         $results = new HyperLogLogResultCollection;
 
-        // Pour chaque élément, on estime le nombre d'éléments uniques
-        // Note: HyperLogLog ne supporte pas nativement le batch counting
-        // On retourne le count global pour chaque contexte
-        $globalCount = $this->count();
-
         foreach ($collection as $record) {
-            $results->add(new HyperLogLogResultRecord(
-                count: $globalCount,
-                context: $record->context
-            ));
+            $count = $this->count($record->context);
+            $results->add(new HyperLogLogResultRecord($count, $record->context));
         }
 
         return $results;
@@ -143,8 +211,25 @@ class HyperLogLog implements HyperLogLogInterface
         return $zeros;
     }
 
-    public function clear(): void
+    public function clear(?string $context = null): void
     {
-        $this->storage->delete($this->key);
+        if ($context !== null) {
+            $contextKey = $this->key.'_'.$context;
+            $this->storage->delete($contextKey);
+
+            // Supprimer de la liste
+            $contexts = $this->storage->get($this->key.'_contexts', []);
+            $contexts = array_filter($contexts, fn ($c) => $c !== $context);
+            $this->storage->set($this->key.'_contexts', array_values($contexts));
+        } else {
+            $this->storage->delete($this->key);
+
+            // Supprimer tous les contextes
+            $contexts = $this->storage->get($this->key.'_contexts', []);
+            foreach ($contexts as $contextName) {
+                $this->storage->delete($this->key.'_'.$contextName);
+            }
+            $this->storage->delete($this->key.'_contexts');
+        }
     }
 }

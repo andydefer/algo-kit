@@ -15,13 +15,13 @@ class Trie implements TrieInterface
         private string $key = 'trie'
     ) {
         if (! $this->storage->exists($this->key)) {
-            $this->storage->set($this->key, ['children' => [], 'words' => []]);
+            $this->storage->set($this->key, ['root' => ['children' => [], 'words' => []]]);
         }
     }
 
     private function &getRoot(): array
     {
-        $data = $this->storage->get($this->key, ['children' => [], 'words' => []]);
+        $data = $this->storage->get($this->key, ['root' => ['children' => [], 'words' => []]]);
 
         return $data;
     }
@@ -31,10 +31,23 @@ class Trie implements TrieInterface
         $this->storage->set($this->key, $root);
     }
 
-    public function insert(string $word): void
+    private function &getContextNode(array &$root, ?string $context): array
+    {
+        if ($context !== null) {
+            if (! isset($root[$context])) {
+                $root[$context] = ['children' => [], 'words' => []];
+            }
+
+            return $root[$context];
+        }
+
+        return $root['root'];
+    }
+
+    public function insert(string $word, ?string $context = null): void
     {
         $root = $this->getRoot();
-        $node = &$root;
+        $node = &$this->getContextNode($root, $context);
         $chars = str_split($word);
 
         foreach ($chars as $char) {
@@ -51,10 +64,10 @@ class Trie implements TrieInterface
         $this->saveRoot($root);
     }
 
-    public function search(string $prefix, int $limit = 10): TrieResultCollection
+    public function search(string $prefix, ?string $context = null, int $limit = 10): TrieResultCollection
     {
         $root = $this->getRoot();
-        $node = $this->findNode($root, $prefix);
+        $node = $this->findNode($root, $prefix, $context);
         $results = new TrieResultCollection;
 
         if ($node === null) {
@@ -64,7 +77,7 @@ class Trie implements TrieInterface
         $words = $this->collectWords($node, $prefix, $limit);
 
         foreach ($words as $word) {
-            $results->add(new TrieResultRecord($word));
+            $results->add(new TrieResultRecord($word, $context));
         }
 
         return $results;
@@ -75,7 +88,7 @@ class Trie implements TrieInterface
         $root = $this->getRoot();
 
         foreach ($collection as $record) {
-            $node = &$root;
+            $node = &$this->getContextNode($root, $record->context);
             $chars = str_split($record->value);
 
             foreach ($chars as $char) {
@@ -99,25 +112,26 @@ class Trie implements TrieInterface
         $root = $this->getRoot();
 
         foreach ($collection as $record) {
-            $node = $this->findNode($root, $record->value);
+            $node = $this->findNode($root, $record->value, $record->context);
             $resultCollection = new TrieResultCollection;
 
             if ($node !== null) {
                 $words = $this->collectWords($node, $record->value, $limit);
                 foreach ($words as $word) {
-                    $resultCollection->add(new TrieResultRecord($word));
+                    $resultCollection->add(new TrieResultRecord($word, $record->context));
                 }
             }
 
-            $results[$record->value] = $resultCollection;
+            $key = $record->context !== null ? $record->context.':'.$record->value : $record->value;
+            $results[$key] = $resultCollection;
         }
 
         return $results;
     }
 
-    private function findNode(array $root, string $prefix): ?array
+    private function findNode(array $root, string $prefix, ?string $context = null): ?array
     {
-        $node = &$root;
+        $node = &$this->getContextNode($root, $context);
         $chars = str_split($prefix);
 
         foreach ($chars as $char) {

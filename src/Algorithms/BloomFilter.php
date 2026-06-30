@@ -24,37 +24,52 @@ class BloomFilter implements BloomFilterInterface
         $this->hashCount = $hashCount;
 
         if (! $this->storage->exists($this->key)) {
-            $this->storage->set($this->key, array_fill(0, $size, 0));
+            $this->storage->set($this->key, []);
         }
     }
 
-    private function &getBits(): array
+    private function getBits(?string $context = null): array
     {
-        $bits = $this->storage->get($this->key, array_fill(0, $this->size, 0));
+        $contextKey = $context !== null ? $this->key.'_'.$context : $this->key;
+
+        if (! $this->storage->exists($contextKey)) {
+            $bits = array_fill(0, $this->size, 0);
+            $this->storage->set($contextKey, $bits);
+
+            return $bits;
+        }
+
+        $bits = $this->storage->get($contextKey);
+
+        if ($bits === null || ! is_array($bits) || count($bits) !== $this->size) {
+            $bits = array_fill(0, $this->size, 0);
+            $this->storage->set($contextKey, $bits);
+        }
 
         return $bits;
     }
 
-    private function saveBits(array $bits): void
+    private function saveBits(array $bits, ?string $context = null): void
     {
-        $this->storage->set($this->key, $bits);
+        $contextKey = $context !== null ? $this->key.'_'.$context : $this->key;
+        $this->storage->set($contextKey, $bits);
     }
 
-    public function insert(string $value): void
+    public function insert(string $value, ?string $context = null): void
     {
-        $bits = $this->getBits();
+        $bits = $this->getBits($context);
 
         for ($i = 0; $i < $this->hashCount; $i++) {
             $index = $this->hash($value, $i);
             $bits[$index] = 1;
         }
 
-        $this->saveBits($bits);
+        $this->saveBits($bits, $context);
     }
 
-    public function exists(string $value): bool
+    public function exists(string $value, ?string $context = null): bool
     {
-        $bits = $this->getBits();
+        $bits = $this->getBits($context);
 
         for ($i = 0; $i < $this->hashCount; $i++) {
             $index = $this->hash($value, $i);
@@ -68,24 +83,47 @@ class BloomFilter implements BloomFilterInterface
 
     public function insertBatch(BloomFilterCollection $collection): void
     {
-        $bits = $this->getBits();
+        $bitsByContext = [];
 
         foreach ($collection as $record) {
+            $contextKey = $record->context ?? 'global';
+
+            if (! isset($bitsByContext[$contextKey])) {
+                $bitsByContext[$contextKey] = $this->getBits($record->context);
+            }
+            // 🔥 Sans référence, on copie
+            $bits = $bitsByContext[$contextKey];
+
             for ($i = 0; $i < $this->hashCount; $i++) {
                 $index = $this->hash($record->value, $i);
                 $bits[$index] = 1;
             }
+
+            // 🔥 Sauvegarder immédiatement
+            $bitsByContext[$contextKey] = $bits;
+            $this->saveBits($bits, $record->context);
         }
 
-        $this->saveBits($bits);
+        // Sauvegarder les contextes restants
+        foreach ($bitsByContext as $contextKey => $bits) {
+            $context = $contextKey !== 'global' ? $contextKey : null;
+            $this->saveBits($bits, $context);
+        }
     }
 
     public function existsBatch(BloomFilterCollection $collection): BloomFilterResultCollection
     {
-        $bits = $this->getBits();
         $results = new BloomFilterResultCollection;
+        $cache = [];
 
         foreach ($collection as $record) {
+            $contextKey = $record->context ?? 'global';
+
+            if (! isset($cache[$contextKey])) {
+                $cache[$contextKey] = $this->getBits($record->context);
+            }
+            $bits = $cache[$contextKey];
+
             $exists = true;
             for ($i = 0; $i < $this->hashCount; $i++) {
                 $index = $this->hash($record->value, $i);
@@ -94,7 +132,8 @@ class BloomFilter implements BloomFilterInterface
                     break;
                 }
             }
-            $results->add(new BloomFilterResultRecord($record->value, $exists));
+
+            $results->add(new BloomFilterResultRecord($record->value, $exists, $record->context));
         }
 
         return $results;
@@ -105,8 +144,12 @@ class BloomFilter implements BloomFilterInterface
         return abs(crc32($seed.$value)) % $this->size;
     }
 
-    public function clear(): void
+    public function clear(?string $context = null): void
     {
-        $this->storage->delete($this->key);
+        if ($context !== null) {
+            $this->storage->delete($this->key.'_'.$context);
+        } else {
+            $this->storage->delete($this->key);
+        }
     }
 }

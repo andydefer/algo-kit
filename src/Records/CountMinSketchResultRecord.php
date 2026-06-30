@@ -8,6 +8,7 @@ class CountMinSketchResultRecord extends AbstractRecord
 {
     public function __construct(
         public string $value,
-        public int $count
+        public int $count,
+        public ?string $context = null
     ) {}
 }
