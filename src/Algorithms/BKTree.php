@@ -103,7 +103,17 @@ final class BKTree implements TreeInterface
     {
         $source = $this->storage->get($this->key);
 
-        return $source ? BKTreeNodeRecord::from($source) : null;
+        // Si c'est déjà un objet BKTreeNodeRecord (MemoryStorage)
+        if ($source instanceof BKTreeNodeRecord) {
+            return $source;
+        }
+
+        // Si c'est un tableau, le convertir en objet
+        if (is_array($source)) {
+            return BKTreeNodeRecord::from($source);
+        }
+
+        return null;
     }
 
     /**
@@ -113,7 +123,9 @@ final class BKTree implements TreeInterface
      */
     private function saveRoot(?BKTreeNodeRecord $root): void
     {
-        $this->storage->set($this->key, $root);
+        // Convertir l'objet en tableau pour le stockage (SQLite, Jsonl, etc.)
+        $data = $root ? $root->toArray() : null;
+        $this->storage->set($this->key, $data);
     }
 
     /**

@@ -8,10 +8,10 @@ use AndyDefer\AlgoKIT\Algorithms\TopK;
 use AndyDefer\AlgoKIT\Collections\TopKCollection;
 use AndyDefer\AlgoKIT\Collections\TopKResultCollection;
 use AndyDefer\AlgoKIT\Records\TopKRecord;
-use AndyDefer\AlgoKIT\Tests\JsonlStorageTestCase;
+use AndyDefer\AlgoKIT\Tests\SqliteStorageTestCase;
 use AndyDefer\StorageKit\Storage\MemoryStorage;
 
-final class TopKTest extends JsonlStorageTestCase
+final class TopKTest extends SqliteStorageTestCase
 {
     private TopK $topK;
 

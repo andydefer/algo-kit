@@ -8,10 +8,10 @@ use AndyDefer\AlgoKIT\Algorithms\HyperLogLog;
 use AndyDefer\AlgoKIT\Collections\HyperLogLogCollection;
 use AndyDefer\AlgoKIT\Collections\HyperLogLogResultCollection;
 use AndyDefer\AlgoKIT\Records\HyperLogLogRecord;
-use AndyDefer\AlgoKIT\Tests\JsonlStorageTestCase;
+use AndyDefer\AlgoKIT\Tests\SqliteStorageTestCase;
 use AndyDefer\StorageKit\Storage\MemoryStorage;
 
-final class HyperLogLogTest extends JsonlStorageTestCase
+final class HyperLogLogTest extends SqliteStorageTestCase
 {
     private HyperLogLog $hll;
 
@@ -23,8 +23,8 @@ final class HyperLogLogTest extends JsonlStorageTestCase
 
     protected function tearDown(): void
     {
-        parent::tearDown();
         $this->hll->clear();
+        parent::tearDown();
     }
 
     public function test_add_and_count(): void

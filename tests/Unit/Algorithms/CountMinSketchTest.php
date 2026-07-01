@@ -8,10 +8,10 @@ use AndyDefer\AlgoKIT\Algorithms\CountMinSketch;
 use AndyDefer\AlgoKIT\Collections\CountMinSketchCollection;
 use AndyDefer\AlgoKIT\Collections\CountMinSketchResultCollection;
 use AndyDefer\AlgoKIT\Records\CountMinSketchRecord;
-use AndyDefer\AlgoKIT\Tests\CacheStorageTestCase;
+use AndyDefer\AlgoKIT\Tests\SqliteStorageTestCase;
 use AndyDefer\StorageKit\Storage\MemoryStorage;
 
-final class CountMinSketchTest extends CacheStorageTestCase
+final class CountMinSketchTest extends SqliteStorageTestCase
 {
     private CountMinSketch $cms;
 
@@ -23,8 +23,8 @@ final class CountMinSketchTest extends CacheStorageTestCase
 
     protected function tearDown(): void
     {
-        parent::tearDown();
         $this->cms->clear();
+        parent::tearDown();
     }
 
     public function test_add_and_count(): void

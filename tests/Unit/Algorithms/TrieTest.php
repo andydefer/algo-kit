@@ -8,10 +8,10 @@ use AndyDefer\AlgoKIT\Algorithms\Trie;
 use AndyDefer\AlgoKIT\Collections\TrieCollection;
 use AndyDefer\AlgoKIT\Collections\TrieResultCollection;
 use AndyDefer\AlgoKIT\Records\TrieRecord;
-use AndyDefer\AlgoKIT\Tests\CacheStorageTestCase;
+use AndyDefer\AlgoKIT\Tests\SqliteStorageTestCase;
 use AndyDefer\StorageKit\Storage\MemoryStorage;
 
-final class TrieTest extends CacheStorageTestCase
+final class TrieTest extends SqliteStorageTestCase
 {
     private Trie $trie;
 

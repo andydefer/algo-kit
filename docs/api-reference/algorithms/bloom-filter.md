@@ -2,26 +2,39 @@
 
 ## Description
 
-BloomFilter est une structure de données probabiliste qui teste l'appartenance d'un élément à un ensemble. Elle permet de répondre rapidement à la question "Cet élément a-t-il déjà été vu ?" avec un risque contrôlé de faux positifs.
+Le BloomFilter est une structure de données probabiliste permettant de tester l'appartenance d'un élément à un ensemble, avec une mémoire extrêmement réduite. Il peut produire des faux positifs mais jamais de faux négatifs.
 
 ## Hiérarchie / Implémentations
 
 ```
 BloomFilterInterface
-    └── BloomFilter
+    └── BloomFilter (final)
 ```
 
-**Interfaces implémentées :** `BloomFilterInterface`
+La classe implémente l'interface `BloomFilterInterface` et utilise :
+- `StorageInterface` pour la persistance des données
+- `BloomFilterCollection` pour les opérations batch
+- `BloomFilterResultCollection` pour retourner les résultats
+- `BloomFilterResultRecord` pour représenter un résultat
 
 ## Rôle principal
 
-BloomFilter utilise un tableau de bits et plusieurs fonctions de hachage pour stocker les empreintes des éléments. Il permet de vérifier l'existence d'un élément avec une complexité O(k) où k est le nombre de fonctions de hachage, tout en utilisant très peu de mémoire. Particulièrement adapté pour les cas où la mémoire est limitée et où les faux positifs sont acceptables.
+Le BloomFilter est conçu pour répondre à la question **"Est-ce que cet élément est déjà présent ?"** de manière extrêmement efficace en mémoire. Contrairement à une table de hachage qui stocke les éléments réels, le BloomFilter stocke seulement un tableau de bits et utilise plusieurs fonctions de hachage.
+
+**Propriétés fondamentales :**
+- ✅ **Pas de faux négatifs** : Si `exists()` retourne `false`, l'élément n'est **certainement pas** dans l'ensemble
+- ⚠️ **Faux positifs possibles** : Si `exists()` retourne `true`, l'élément **probablement** dans l'ensemble
+- 💾 **Mémoire constante** : La mémoire utilisée ne dépend pas du nombre d'éléments
 
 ## Installation
 
 ```bash
-composer require andydefer/algokit
+composer require andydefer/algo-kit
 ```
+
+Prérequis :
+- PHP 8.1 ou supérieur
+- Extension `storage-kit` installée
 
 ## API / Méthodes publiques
 
@@ -29,67 +42,59 @@ composer require andydefer/algokit
 
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$storage` | `StorageInterface` | Instance du système de stockage |
-| `$size` | `int` | Taille du tableau de bits (défaut: 10000) |
-| `$hashCount` | `int` | Nombre de fonctions de hachage (défaut: 3) |
-| `$key` | `string` | Clé d'identification dans le storage (défaut: 'bloom') |
+| `$storage` | `StorageInterface` | Backend de stockage pour la persistance |
+| `$size` | `int` | Nombre de bits (plus grand = moins de faux positifs) |
+| `$hashCount` | `int` | Nombre de fonctions de hachage (plus grand = moins de faux positifs) |
+| `$key` | `string` | Clé unique identifiant le filtre (défaut : 'bloom') |
 
 **Retourne :** `void`
 
 **Exemple :**
 ```php
 $storage = new MemoryStorage();
-$bloom = new BloomFilter($storage, 10000, 3, 'urls');
+$bloom = new BloomFilter($storage, 100000, 5, 'url_checker');
 ```
 
 ---
 
 ### `insert(string $value, ?string $context = null): void`
 
-Insère une valeur dans le filtre.
-
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$value` | `string` | Valeur à insérer |
-| `$context` | `string|null` | Contexte pour isoler les données (défaut: null) |
+| `$value` | `string` | La valeur à insérer dans le filtre |
+| `$context` | `string|null` | Contexte optionnel pour isoler les données |
 
 **Retourne :** `void`
 
 **Exemple :**
 ```php
-$bloom->insert('https://example.com');
-$bloom->insert('user_123', 'users');
+$bloom->insert('user_123');
+$bloom->insert('user_456', 'active_users');
 ```
 
 ---
 
 ### `exists(string $value, ?string $context = null): bool`
 
-Vérifie si une valeur existe probablement dans le filtre.
-
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$value` | `string` | Valeur à vérifier |
-| `$context` | `string|null` | Contexte de la recherche (défaut: null) |
+| `$value` | `string` | La valeur à tester |
+| `$context` | `string|null` | Contexte optionnel pour isoler les données |
 
-**Retourne :** `bool` - `true` si la valeur existe probablement, `false` si elle n'existe pas
+**Retourne :** `bool` - `true` si l'élément existe probablement, `false` s'il n'existe certainement pas
 
 **Exemple :**
 ```php
-if ($bloom->exists('https://example.com')) {
-    echo "URL déjà indexée (probablement)";
-}
-
-if ($bloom->exists('user_123', 'users')) {
-    echo "Utilisateur déjà présent dans le contexte 'users'";
+if ($bloom->exists('user_123')) {
+    echo "Utilisateur probablement déjà vu\n";
+} else {
+    echo "Utilisateur certainement jamais vu\n";
 }
 ```
 
 ---
 
 ### `insertBatch(BloomFilterCollection $collection): void`
-
-Insère plusieurs valeurs en lot.
 
 | Paramètre | Type | Description |
 |-----------|------|-------------|
@@ -100,8 +105,10 @@ Insère plusieurs valeurs en lot.
 **Exemple :**
 ```php
 $collection = new BloomFilterCollection();
-$collection->add(new BloomFilterRecord('url1'));
-$collection->add(new BloomFilterRecord('url2'));
+$collection->add(new BloomFilterRecord('url1.com'));
+$collection->add(new BloomFilterRecord('url2.com'));
+$collection->add(new BloomFilterRecord('url3.com', 'crawled'));
+
 $bloom->insertBatch($collection);
 ```
 
@@ -109,19 +116,21 @@ $bloom->insertBatch($collection);
 
 ### `existsBatch(BloomFilterCollection $collection): BloomFilterResultCollection`
 
-Vérifie plusieurs valeurs en lot.
-
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$collection` | `BloomFilterCollection` | Collection de valeurs à vérifier |
+| `$collection` | `BloomFilterCollection` | Collection de valeurs à tester |
 
-**Retourne :** `BloomFilterResultCollection` - Collection des résultats avec le statut d'existence
+**Retourne :** `BloomFilterResultCollection` - Collection des résultats de test
 
 **Exemple :**
 ```php
+$collection = new BloomFilterCollection();
+$collection->add(new BloomFilterRecord('url1.com'));
+$collection->add(new BloomFilterRecord('url2.com'));
+
 $results = $bloom->existsBatch($collection);
 foreach ($results as $result) {
-    echo "{$result->value}: " . ($result->exists ? 'existe' : 'non trouvé');
+    echo "{$result->value} : " . ($result->exists ? '✅' : '❌') . "\n";
 }
 ```
 
@@ -129,210 +138,337 @@ foreach ($results as $result) {
 
 ### `clear(?string $context = null): void`
 
-Vide complètement le filtre.
-
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$context` | `string|null` | Contexte à vider (défaut: null = tout vider) |
+| `$context` | `string|null` | Si fourni, supprime seulement ce contexte |
 
 **Retourne :** `void`
 
 **Exemple :**
 ```php
-$bloom->clear(); // Vide tout
-$bloom->clear('users'); // Vide uniquement le contexte 'users'
+// Supprimer un contexte spécifique
+$bloom->clear('active_users');
+
+// Supprimer tout le filtre
+$bloom->clear();
 ```
+
+---
 
 ## Cas d'utilisation
 
-### Cas 1 : Détection d'URLs déjà indexées
+### Cas 1 : Vérification d'URLs déjà crawlé (web scraping)
 
 ```php
+<?php
+
+declare(strict_types=1);
+
 use AndyDefer\AlgoKIT\Algorithms\BloomFilter;
-use AndyDefer\AlgoKIT\Storage\MemoryStorage;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
 
 $storage = new MemoryStorage();
-$bloom = new BloomFilter($storage, 100000, 3, 'url_index');
+$crawledUrls = new BloomFilter($storage, 1000000, 5, 'crawler');
 
-// Indexation des URLs
-$urls = [
+// URLs à explorer
+$urlsToVisit = [
     'https://example.com/page1',
     'https://example.com/page2',
-    'https://example.com/page3'
+    'https://example.com/page1', // Déjà visitée
+    'https://example.com/page3',
+    'https://example.com/page2', // Déjà visitée
 ];
 
-foreach ($urls as $url) {
-    if (!$bloom->exists($url)) {
-        $bloom->insert($url);
-        echo "Nouvelle URL indexée: $url\n";
-    } else {
-        echo "URL déjà indexée: $url\n";
+foreach ($urlsToVisit as $url) {
+    if ($crawledUrls->exists($url)) {
+        echo "⏭️  $url déjà crawlé, ignoré\n";
+        continue;
     }
+    
+    echo "🕷️  Crawl de $url\n";
+    // Simuler le crawling
+    $crawledUrls->insert($url);
 }
+
+// Sortie :
+// 🕷️  Crawl de https://example.com/page1
+// 🕷️  Crawl de https://example.com/page2
+// ⏭️  https://example.com/page1 déjà crawlé, ignoré
+// 🕷️  Crawl de https://example.com/page3
+// ⏭️  https://example.com/page2 déjà crawlé, ignoré
 ```
 
-### Cas 2 : Filtrage par contexte (multi-tenants)
+### Cas 2 : Détection de spam (URLs malveillantes)
 
 ```php
-class TenantBloomFilter
-{
-    private BloomFilter $bloom;
-    private string $tenantId;
-    
-    public function __construct(BloomFilter $bloom, string $tenantId)
-    {
-        $this->bloom = $bloom;
-        $this->tenantId = $tenantId;
-    }
-    
-    public function isBlacklisted(string $email): bool
-    {
-        return $this->bloom->exists($email, 'blacklist_' . $this->tenantId);
-    }
-    
-    public function addToBlacklist(string $email): void
-    {
-        $this->bloom->insert($email, 'blacklist_' . $this->tenantId);
-    }
-}
+<?php
 
-// Utilisation multi-tenant
+declare(strict_types=1);
+
+use AndyDefer\AlgoKIT\Algorithms\BloomFilter;
+use AndyDefer\AlgoKIT\Collections\BloomFilterCollection;
+use AndyDefer\AlgoKIT\Records\BloomFilterRecord;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+
 $storage = new MemoryStorage();
-$bloom = new BloomFilter($storage, 50000, 4, 'tenant_blacklist');
+$spamDomains = new BloomFilter($storage, 500000, 4, 'spam');
 
-$tenant1 = new TenantBloomFilter($bloom, 'tenant_1');
-$tenant2 = new TenantBloomFilter($bloom, 'tenant_2');
+// Charger une liste de domaines spams connus
+$knownSpam = [
+    'spam-domain1.com',
+    'spam-domain2.net',
+    'spam-domain3.org',
+    'malware-site.com',
+];
 
-$tenant1->addToBlacklist('spam@example.com');
-$tenant2->addToBlacklist('fraud@example.com');
+foreach ($knownSpam as $domain) {
+    $spamDomains->insert($domain);
+}
 
-var_dump($tenant1->isBlacklisted('spam@example.com')); // true
-var_dump($tenant2->isBlacklisted('spam@example.com')); // false
+// Tester un commentaire
+$comment = "Check out my website: spam-domain1.com";
+preg_match_all('/[a-zA-Z0-9-]+\\.[a-zA-Z]{2,}/', $comment, $matches);
+
+foreach ($matches[0] as $domain) {
+    if ($spamDomains->exists($domain)) {
+        echo "⚠️  Domaine spam détecté : $domain\n";
+        echo "Commentaire rejeté !\n";
+        break;
+    }
+}
+// Sortie :
+// ⚠️  Domaine spam détecté : spam-domain1.com
+// Commentaire rejeté !
 ```
 
-### Cas 3 : Filtrage de spam avec batch
+### Cas 3 : Suivi d'utilisateurs uniques (analytics)
 
 ```php
-class SpamFilter
-{
-    private BloomFilter $spamFilter;
+<?php
+
+declare(strict_types=1);
+
+use AndyDefer\AlgoKIT\Algorithms\BloomFilter;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+
+$storage = new MemoryStorage();
+$visitors = new BloomFilter($storage, 50000, 3, 'analytics');
+
+// Simuler des visites sur 7 jours
+$days = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
+$totalVisits = 0;
+$uniqueVisitors = 0;
+
+foreach ($days as $day) {
+    echo "\n📊 $day :\n";
     
-    public function __construct(BloomFilter $spamFilter)
-    {
-        $this->spamFilter = $spamFilter;
-    }
-    
-    public function filterComments(array $comments): array
-    {
-        $collection = new BloomFilterCollection();
-        foreach ($comments as $comment) {
-            $hash = md5($comment);
-            $collection->add(new BloomFilterRecord($hash, 'spam'));
+    // Simuler 100 visites par jour
+    for ($i = 0; $i < 100; $i++) {
+        $userId = 'user_' . rand(1, 50);
+        $totalVisits++;
+        
+        if ($visitors->exists($userId, $day)) {
+            // Utilisateur déjà vu aujourd'hui
+            continue;
         }
         
-        $results = $this->spamFilter->existsBatch($collection);
-        
-        $filtered = [];
-        foreach ($results as $result) {
-            if (!$result->exists) {
-                $filtered[] = $result->value;
-                $this->spamFilter->insert($result->value, 'spam');
+        $visitors->insert($userId, $day);
+        $uniqueVisitors++;
+        echo "  Nouvel utilisateur : $userId\n";
+    }
+}
+
+echo "\n📈 Statistiques :\n";
+echo "Visites totales : $totalVisits\n";
+echo "Visiteurs uniques estimés : $uniqueVisitors\n";
+echo "Taux de répétition : " . round((1 - $uniqueVisitors / $totalVisits) * 100, 1) . "%\n";
+```
+
+### Cas 4 : Cache bloqué (éviter les requêtes inutiles)
+
+```php
+<?php
+
+declare(strict_types=1);
+
+use AndyDefer\AlgoKIT\Algorithms\BloomFilter;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+
+// Classe d'exemple pour une API
+class ApiService
+{
+    private BloomFilter $cacheChecker;
+    private array $cache = [];
+    
+    public function __construct()
+    {
+        $storage = new MemoryStorage();
+        $this->cacheChecker = new BloomFilter($storage, 10000, 3, 'api_cache');
+    }
+    
+    public function fetchData(string $id): string
+    {
+        // Vérification rapide dans le BloomFilter
+        if ($this->cacheChecker->exists($id)) {
+            // Probablement en cache, vérifier
+            if (isset($this->cache[$id])) {
+                echo "📦 Cache hit pour $id\n";
+                return $this->cache[$id];
             }
         }
         
-        return $filtered;
+        // Simuler une requête API lente
+        echo "🌐 Requête API pour $id\n";
+        $data = "Données pour $id";
+        
+        // Mettre en cache
+        $this->cache[$id] = $data;
+        $this->cacheChecker->insert($id);
+        
+        return $data;
     }
 }
+
+$api = new ApiService();
+$api->fetchData('user_1');
+$api->fetchData('user_2');
+$api->fetchData('user_1'); // Cache hit !
+$api->fetchData('user_3');
+$api->fetchData('user_2'); // Cache hit !
+// Sortie :
+// 🌐 Requête API pour user_1
+// 🌐 Requête API pour user_2
+// 📦 Cache hit pour user_1
+// 🌐 Requête API pour user_3
+// 📦 Cache hit pour user_2
 ```
 
 ## Flux d'exécution
 
+### Insertion d'une valeur
+
 ```
 insert($value, $context)
     ↓
-getBits($context) → tableau de bits
+getBits($context) → Récupérer le tableau de bits
     ↓
-for each hash function (0 → hashCount)
+Pour i = 0 à hashCount - 1 :
+    index = hashValue($value, i) → Calculer l'index
+    bits[$index] = 1 → Définir le bit
     ↓
-    index = hash($value, $i) % size
-    ↓
-    bits[index] = 1
-    ↓
-saveBits($bits, $context)
+saveBits($bits, $context) → Persister
 ```
+
+### Test d'existence
 
 ```
 exists($value, $context)
     ↓
-getBits($context) → tableau de bits
+getBits($context) → Récupérer le tableau de bits
     ↓
-for each hash function (0 → hashCount)
+Pour i = 0 à hashCount - 1 :
+    index = hashValue($value, i) → Calculer l'index
+        ↓
+    bits[$index] === 0 ?
+        ├── OUI → Retourner false (certainement absent)
+        └── NON → Continuer
     ↓
-    index = hash($value, $i) % size
+Retourner true (probablement présent)
+```
+
+### Opérations Batch (optimisées)
+
+```
+insertBatch($collection)
     ↓
-    bits[index] === 0? → return false
+Pour chaque élément :
+    1. Récupérer les bits du contexte
+    2. Mettre à jour les bits
+    3. Sauvegarder immédiatement
     ↓
-return true
+existsBatch($collection)
+    ↓
+Pour chaque élément :
+    1. Récupérer les bits du contexte (avec cache)
+    2. Tester l'existence
+    3. Ajouter le résultat
 ```
 
 ## Gestion des erreurs
 
 | Situation | Exception | Message |
 |-----------|-----------|---------|
-| Aucune exception explicite | - | - |
+| Aucune | - | - |
 
-**Note :** BloomFilter ne lève pas d'exceptions. Les erreurs sont gérées silencieusement par l'utilisation de valeurs par défaut.
+**Note :** La classe ne lève pas d'exceptions directement. Les erreurs peuvent provenir de l'implémentation de `StorageInterface` utilisée.
 
 ## Intégration
 
-### Avec Storage
-
-BloomFilter utilise `StorageInterface` pour la persistance des données :
+### Avec StorageKit
 
 ```php
-// Sauvegarde automatique
-$bloom->insert('value'); // Persiste dans storage
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+use AndyDefer\StorageKit\Storage\CacheStorage;
+use AndyDefer\AlgoKIT\Algorithms\BloomFilter;
 
-// Récupération automatique
-$bloom = new BloomFilter($storage, 10000, 3, 'bloom'); // Charge depuis storage
+// Stockage en mémoire (pour les tests)
+$memoryStorage = new MemoryStorage();
+$bloom = new BloomFilter($memoryStorage);
+
+// Stockage persistant
+$cacheStorage = new CacheStorage('redis');
+$bloom = new BloomFilter($cacheStorage, 1000000, 5, 'production_bloom');
 ```
 
-### Avec les Records
+### Avec les collections
 
-BloomFilter utilise des Records pour représenter les données :
+```php
+use AndyDefer\AlgoKIT\Collections\BloomFilterCollection;
+use AndyDefer\AlgoKIT\Records\BloomFilterRecord;
+use AndyDefer\AlgoKIT\Records\BloomFilterResultRecord;
 
-- `BloomFilterRecord` : Représente une valeur à insérer/vérifier
-- `BloomFilterResultRecord` : Représente un résultat de vérification (inclut le contexte)
+$collection = new BloomFilterCollection();
+$collection->add(new BloomFilterRecord('value1'));
+$collection->add(new BloomFilterRecord('value2', 'context'));
 
-### Avec les Collections
+$results = $bloom->existsBatch($collection);
 
-BloomFilter utilise des Collections typées :
-
-- `BloomFilterCollection` : Collection de valeurs
-- `BloomFilterResultCollection` : Collection de résultats
+// Filtrer les résultats positifs
+$found = $results->filter(
+    fn(BloomFilterResultRecord $r) => $r->exists === true
+);
+```
 
 ## Performance
 
-| Opération | Complexité | Notes |
-|-----------|------------|-------|
-| `insert()` | O(k) | k = nombre de fonctions de hachage |
-| `exists()` | O(k) | k = nombre de fonctions de hachage |
-| `insertBatch()` | O(n*k) | n = nombre d'éléments |
-| `existsBatch()` | O(n*k) | n = nombre d'éléments |
-| `clear()` | O(1) | Suppression de la clé dans le storage |
+| Opération | Complexité | Description |
+|-----------|------------|-------------|
+| `insert()` | O(1) | k hachages (k = hashCount) |
+| `exists()` | O(1) | k hachages maximum (arrêt anticipé) |
+| `insertBatch()` | O(n × k) | n = nombre d'éléments, k = hashCount |
+| `existsBatch()` | O(n × k) | Avec cache des contextes |
 
-**Taux de faux positifs :** `(1 - e^(-k*n/m))^k` où :
-- `n` = nombre d'éléments insérés
-- `m` = taille du tableau de bits
-- `k` = nombre de fonctions de hachage
+**Caractéristiques :**
+- **Mémoire constante** : Utilise toujours `size` bits, quel que soit le nombre d'éléments
+- **Temps constant** : Les opérations ne dépendent pas du nombre d'éléments
+- **Scalabilité** : Peut gérer des milliards d'éléments avec peu de mémoire
+
+**Paramètres recommandés :**
+
+| Usage | Size | HashCount | Faux positifs |
+|-------|------|-----------|---------------|
+| Petits ensembles (< 1000) | 10 000 | 3 | ~1% |
+| Ensembles moyens (< 1M) | 100 000 | 5 | ~0.5% |
+| Grands ensembles (< 10M) | 1 000 000 | 7 | ~0.1% |
+| Très grands ensembles (< 100M) | 10 000 000 | 9 | ~0.01% |
 
 ## Compatibilité
 
-| Version | Support |
-|---------|---------|
-| PHP 8.1+ | ✅ Complet |
-| PHP 8.0 | ✅ Complet |
-| PHP 7.4 | ❌ Non (nécessite PHP 8.0+) |
+| Version | Support | Notes |
+|---------|---------|-------|
+| PHP 8.1+ | ✅ Complet | Types et syntaxe recommandés |
+| PHP 8.0 | ✅ Complet | Compatible avec ajustements mineurs |
+| PHP 7.4 | ❌ Non supporté | Utilise `fn()` et `readonly` |
 
 ## Exemple complet
 
@@ -344,123 +480,76 @@ declare(strict_types=1);
 use AndyDefer\AlgoKIT\Algorithms\BloomFilter;
 use AndyDefer\AlgoKIT\Collections\BloomFilterCollection;
 use AndyDefer\AlgoKIT\Records\BloomFilterRecord;
-use AndyDefer\AlgoKIT\Storage\MemoryStorage;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
 
 // 1. Initialisation
 $storage = new MemoryStorage();
-$bloom = new BloomFilter($storage, 1000, 3, 'test_bloom');
+$bloom = new BloomFilter($storage, 1000, 3, 'demo');
 
-// 2. Insertion de valeurs avec contexte
-$values = [
-    ['apple', 'fruits'],
-    ['banana', 'fruits'],
-    ['cherry', 'fruits'],
-    ['date', 'fruits'],
-    ['php', 'languages'],
-    ['python', 'languages']
-];
+// 2. Insertion de valeurs
+$values = ['php', 'laravel', 'python', 'javascript', 'ruby'];
 
-foreach ($values as [$value, $context]) {
-    $bloom->insert($value, $context);
+echo "📝 Insertion des valeurs :\n";
+foreach ($values as $value) {
+    $bloom->insert($value);
+    echo "  ✓ $value\n";
 }
 
-// 3. Vérification individuelle avec contexte
-echo "Vérification individuelle:\n";
-$tests = [
-    ['apple', 'fruits', true],
-    ['php', 'languages', true],
-    ['apple', 'languages', false],
-    ['grape', 'fruits', false]
-];
+// 3. Test d'existence
+echo "\n🔍 Test d'existence :\n";
+$testValues = ['php', 'golang', 'python', 'c++'];
 
-foreach ($tests as [$test, $context, $expected]) {
-    $exists = $bloom->exists($test, $context);
-    $status = $exists ? '✓ existe' : '✗ n\'existe pas';
-    $expectedStatus = $expected ? '✓' : '✗';
-    echo "  '$test' ($context): $status (attendu: $expectedStatus)\n";
+foreach ($testValues as $value) {
+    $exists = $bloom->exists($value);
+    $status = $exists ? '✅ Présent (probablement)' : '❌ Absent (certainement)';
+    echo "  $value : $status\n";
 }
 
-// 4. Vérification par lot avec contexte
-echo "\nVérification par lot:\n";
+// 4. Opérations en batch
+echo "\n📦 Opérations batch :\n";
 $collection = new BloomFilterCollection();
-$collection->add(new BloomFilterRecord('cherry', 'fruits'));
-$collection->add(new BloomFilterRecord('grape', 'fruits'));
-$collection->add(new BloomFilterRecord('python', 'languages'));
-$collection->add(new BloomFilterRecord('ruby', 'languages'));
+$collection->add(new BloomFilterRecord('ruby'));
+$collection->add(new BloomFilterRecord('csharp'));
+$collection->add(new BloomFilterRecord('python'));
 
 $results = $bloom->existsBatch($collection);
 foreach ($results as $result) {
-    echo "  '{$result->value}' ({$result->context}): " . 
-         ($result->exists ? '✓ existe' : '✗ n\'existe pas') . "\n";
+    $status = $result->exists ? '✅' : '❌';
+    echo "  $status {$result->value}\n";
 }
 
-// 5. Insertion par lot
-echo "\nInsertion par lot:\n";
-$newValues = new BloomFilterCollection();
-$newValues->add(new BloomFilterRecord('grape', 'fruits'));
-$newValues->add(new BloomFilterRecord('ruby', 'languages'));
+// 5. Nettoyage
+echo "\n🧹 Nettoyage...\n";
+$bloom->clear();
+echo "Filtre vidé !\n";
 
-$bloom->insertBatch($newValues);
-echo "✓ 2 nouvelles valeurs insérées\n";
-
-// 6. Vérification finale
-echo "\nVérification finale:\n";
-$finalTests = [
-    ['grape', 'fruits', true],
-    ['ruby', 'languages', true],
-    ['grape', 'languages', false]
-];
-
-foreach ($finalTests as [$test, $context, $expected]) {
-    $exists = $bloom->exists($test, $context);
-    $status = $exists ? '✓ existe' : '✗ n\'existe pas';
-    echo "  '$test' ($context): $status\n";
-}
-
-// 7. Nettoyage
-$bloom->clear('fruits');
-echo "\n✓ Contexte 'fruits' vidé\n";
-
-$fruitExists = $bloom->exists('apple', 'fruits');
-echo "  'apple' (fruits): " . ($fruitExists ? '✓ existe' : '✗ n\'existe pas') . "\n";
-
-$languageExists = $bloom->exists('php', 'languages');
-echo "  'php' (languages): " . ($languageExists ? '✓ existe' : '✗ n\'existe pas') . "\n";
-```
-
-**Sortie attendue :**
-```
-Vérification individuelle:
-  'apple' (fruits): ✓ existe (attendu: ✓)
-  'php' (languages): ✓ existe (attendu: ✓)
-  'apple' (languages): ✗ n'existe pas (attendu: ✗)
-  'grape' (fruits): ✗ n'existe pas (attendu: ✗)
-
-Vérification par lot:
-  'cherry' (fruits): ✓ existe
-  'grape' (fruits): ✗ n'existe pas
-  'python' (languages): ✓ existe
-  'ruby' (languages): ✗ n'existe pas
-
-Insertion par lot:
-✓ 2 nouvelles valeurs insérées
-
-Vérification finale:
-  'grape' (fruits): ✓ existe
-  'ruby' (languages): ✓ existe
-  'grape' (languages): ✗ n'existe pas
-
-✓ Contexte 'fruits' vidé
-  'apple' (fruits): ✗ n'existe pas
-  'php' (languages): ✓ existe
+// Exemple de sortie :
+// 📝 Insertion des valeurs :
+//   ✓ php
+//   ✓ laravel
+//   ✓ python
+//   ✓ javascript
+//   ✓ ruby
+// 
+// 🔍 Test d'existence :
+//   php : ✅ Présent (probablement)
+//   golang : ❌ Absent (certainement)
+//   python : ✅ Présent (probablement)
+//   c++ : ❌ Absent (certainement)
+// 
+// 📦 Opérations batch :
+//   ✅ ruby
+//   ❌ csharp
+//   ✅ python
+// 
+// 🧹 Nettoyage...
+// Filtre vidé !
 ```
 
 ## Voir aussi
 
-- `BloomFilterInterface` - Interface du filtre
-- `BloomFilterRecord` - Record pour les valeurs
-- `BloomFilterResultRecord` - Record pour les résultats
-- `BloomFilterCollection` - Collection de valeurs
-- `BloomFilterResultCollection` - Collection de résultats
-- `StorageInterface` - Interface de persistance
-- `MemoryStorage` - Implémentation mémoire du storage
+- [`CountMinSketch`](count-min-sketch.md) - Compteur probabiliste de fréquences
+- [`BKTree`](bk-tree.md) - Recherche floue par distance de Levenshtein
+- [`HyperLogLog`](hyper-log-log.md) - Estimation de cardinalité
+- [`TopK`](top-k.md) - Suivi des éléments les plus fréquents
+- [`Trie`](trie.md) - Recherche par préfixe

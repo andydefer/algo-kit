@@ -16,42 +16,35 @@
    - [HyperLogLog - Comptage d'éléments uniques](#hyperloglog---comptage-déléments-uniques)
    - [TopK - Éléments les plus fréquents](#topk---éléments-les-plus-fréquents)
 5. [Cas d'usage réels](#cas-dusage-réels)
-   - [Compteur d'IP uniques par jour](#compteur-dip-uniques-par-jour)
-   - [Système de recherche avec autocomplétion](#système-de-recherche-avec-autocomplétion)
-   - [Analyse de logs en temps réel](#analyse-de-logs-en-temps-réel)
-   - [Détection de spam](#détection-de-spam)
-   - [Recommandation de produits](#recommandation-de-produits)
 6. [Persistance](#persistance)
 7. [Performance](#performance)
-8. [Exemples complets](#exemples-complets)
-9. [API Reference](#api-reference)
+8. [API Reference](#api-reference)
 
 ---
 
 ## Introduction
 
-**AlgoKIT** est une bibliothèque PHP qui implémente des structures de données probabilistes et algorithmiques pour le traitement de données à grande échelle.
+**AlgoKIT** est une bibliothèque PHP qui implémente des structures de données probabilistes et algorithmiques optimisées pour le traitement de données à grande échelle. Elle permet de résoudre des problèmes complexes (comptage de millions d'éléments, recherche en temps réel, analyse de flux) avec une consommation mémoire minimale.
 
-### Pourquoi AlgoKIT ?
+### Philosophie
 
-Dans le monde des données massives, les structures de données classiques (tableaux, listes, hash maps) atteignent leurs limites en termes de mémoire et de temps de calcul. AlgoKIT propose des structures optimisées qui :
-
-- ✅ **Utilisent très peu de mémoire** (quelques Ko pour des millions d'éléments)
-- ✅ **Sont ultra-rapides** (opérations en O(1) ou O(log n))
-- ✅ **Sont probabilistes** (contrôle du compromis précision/mémoire)
-- ✅ **Supportent les contextes** (isolation des données par catégorie)
-- ✅ **Sont persistantes** (intégration avec StorageInterface)
+| Problème | Solution classique | Solution AlgoKIT |
+|----------|-------------------|------------------|
+| Compter 10M d'IP uniques | Array de 10M éléments (500MB) | HyperLogLog (64KB) |
+| Suggestions en temps réel | Scanner tous les mots (lent) | Trie (O(1) par caractère) |
+| Vérifier des URLs crawlées | Base de données (lente) | BloomFilter (O(k)) |
+| Top 10 des recherches | Tri de millions de logs (lourd) | TopK (mémoire constante) |
 
 ### Les 6 structures clés
 
-| Structure | Rôle | Cas d'usage |
-|-----------|------|-------------|
-| **Trie** | Autocomplétion | Suggestions de recherche en temps réel |
-| **BKTree** | Correction orthographique | "Vous avez voulu dire..." |
-| **BloomFilter** | Test d'existence | Vérification d'URLs déjà crawlées |
-| **CountMinSketch** | Comptage de fréquence | Analyse de logs, top des recherches |
-| **HyperLogLog** | Comptage d'éléments uniques | Visiteurs uniques, événements distincts |
-| **TopK** | Éléments les plus fréquents | Tendances, produits populaires |
+| Structure | Rôle | Complexité | Cas d'usage |
+|-----------|------|------------|-------------|
+| **Trie** | Autocomplétion | O(L) | Suggestions de recherche, dictionnaire |
+| **BKTree** | Correction orthographique | O(n × log n) | "Vous avez voulu dire..." |
+| **BloomFilter** | Test d'existence | O(k) | URLs crawlées, cache bloqué |
+| **CountMinSketch** | Comptage de fréquence | O(d) | Analyse de logs, trending |
+| **HyperLogLog** | Comptage d'éléments uniques | O(1) | Visiteurs uniques, distincts |
+| **TopK** | Éléments les plus fréquents | O(k) | Classements, tendances |
 
 ---
 
@@ -64,15 +57,16 @@ composer require andydefer/algokit
 ### Prérequis
 
 - PHP 8.1 ou supérieur
-- Extension `json` activée (optionnel pour la persistance)
+- Extension `json` (optionnelle pour persistance)
+- Extension `mbstring` (recommandée)
 
 ---
 
 ## Architecture
 
-### StorageInterface - La persistance découplée
+### StorageInterface
 
-Toutes les structures utilisent une interface de stockage commune :
+Toutes les structures utilisent une interface de stockage commune pour la persistance découplée.
 
 ```php
 interface StorageInterface
@@ -84,14 +78,20 @@ interface StorageInterface
 }
 ```
 
-**Pourquoi ?** Cela permet de :
-- Changer de moteur de stockage (mémoire, Redis, fichier) sans modifier les algorithmes
-- Tester facilement avec un storage en mémoire
-- Partager les données entre plusieurs instances
+**Avantages :**
+- Changez de moteur de stockage sans modifier le code métier
+- Testez facilement avec un storage en mémoire
+- Partagez les données entre plusieurs instances
+- Persistez automatiquement les données
+
+**Storages disponibles :**
+- `MemoryStorage` : Stockage en mémoire (tests, développement)
+- `CacheStorage` : Stockage avec cache (Redis, Memcached)
+- `JsonlStorage` : Stockage dans des fichiers JSONL
 
 ### Le concept de contexte
 
-Toutes les structures supportent le **contexte**. Le contexte permet d'isoler les données par catégorie :
+Toutes les structures supportent le **contexte** pour isoler les données par catégorie :
 
 ```php
 // Sans contexte → données globales
@@ -112,11 +112,11 @@ $englishWords = $trie->search('hel', 'english'); // ['hello']
 
 ### Trie - Autocomplétion
 
-**Description :** Stocke les mots dans un arbre préfixé pour des suggestions ultra-rapides.
+**Description :** Structure arborescente où chaque nœud représente un caractère. Les mots partageant un préfixe commun partagent le même chemin, permettant des recherches de préfixes en temps O(L) où L est la longueur du préfixe.
 
-**Complexité :** Insertion O(n), Recherche O(n + m) où n = longueur du préfixe, m = nombre de résultats.
+**Théorie :** Le Trie est idéal pour l'autocomplétion car il évite de scanner tous les mots à chaque recherche. La complexité ne dépend que de la longueur du préfixe, pas du nombre total de mots.
 
-**Utilisation typique :** Autocomplétion de recherche, suggestions en temps réel.
+**Utilisation typique :** Autocomplétion de recherche, suggestions en temps réel, dictionnaire.
 
 ```php
 use AndyDefer\AlgoKIT\Algorithms\Trie;
@@ -125,25 +125,46 @@ use AndyDefer\AlgoKIT\Storage\MemoryStorage;
 $storage = new MemoryStorage();
 $trie = new Trie($storage, 'search_autocomplete');
 
-// Indexation
-$words = ['laravel', 'laragon', 'large', 'laptop', 'php', 'python'];
+// Indexation du dictionnaire
+$words = ['laravel', 'laragon', 'large', 'laptop', 'php', 'python', 'pandas'];
 foreach ($words as $word) {
     $trie->insert($word);
 }
 
 // Recherche en temps réel
-$suggestions = $trie->search('la', null, 5);
+$query = 'la';
+$suggestions = $trie->search($query, null, 5);
+
+echo "Suggestions pour '$query' :\n";
 foreach ($suggestions as $result) {
-    echo $result->word . "\n";
+    echo "  • {$result->word}\n";
 }
-// Sortie: laravel, laragon, large, laptop
+// Sortie :
+// Suggestions pour 'la' :
+//   • laravel
+//   • laragon
+//   • large
+//   • laptop
+
+// Avec contexte
+$trie->insert('bonjour', 'french');
+$trie->insert('bonsoir', 'french');
+$trie->insert('hello', 'english');
+
+$french = $trie->search('bon', 'french', 5);
+foreach ($french as $result) {
+    echo "🇫🇷 {$result->word}\n";
+}
+// Sortie :
+// 🇫🇷 bonjour
+// 🇫🇷 bonsoir
 ```
 
 ### BKTree - Correction orthographique
 
-**Description :** Arbre de Burkhard-Keller pour la recherche approximative de mots.
+**Description :** Arbre de Burkhard-Keller qui organise les mots par distance de Levenshtein. Permet de trouver les mots les plus proches d'une requête avec une tolérance configurable.
 
-**Complexité :** Insertion O(log n), Recherche O(n * distance).
+**Théorie :** La distance de Levenshtein mesure le nombre minimal de caractères à insérer, supprimer ou remplacer pour transformer un mot en un autre. Le BKTree explore seulement les branches de l'arbre susceptibles de contenir des mots dans la tolérance donnée.
 
 **Utilisation typique :** Correction des fautes de frappe, suggestions "Vous avez voulu dire...".
 
@@ -154,30 +175,47 @@ use AndyDefer\AlgoKIT\Storage\MemoryStorage;
 $storage = new MemoryStorage();
 $bkTree = new BKTree($storage, 'dictionary');
 
-// Dictionnaire
-$words = ['php', 'python', 'laravel', 'javascript', 'symfony'];
+// Indexation du dictionnaire
+$words = ['php', 'python', 'laravel', 'javascript', 'symfony', 'golang'];
 foreach ($words as $word) {
     $bkTree->insert($word);
 }
 
-// Correction d'une faute
+// Correction d'une faute de frappe
 $typo = 'larvel';
 $suggestions = $bkTree->search($typo, 2, 3);
+
+echo "Suggestions pour '$typo' :\n";
 foreach ($suggestions as $result) {
-    echo "Suggestion: {$result->word} (distance: {$result->distance})\n";
+    echo "  • {$result->word} (distance: {$result->distance})\n";
 }
-// Sortie: Suggestion: laravel (distance: 1)
+// Sortie :
+// Suggestions pour 'larvel' :
+//   • laravel (distance: 1)
+//   • javascript (distance: 6)
+//   • symfony (distance: 6)
+
+// Tolérance plus élevée
+$typo = 'javscrit';
+$suggestions = $bkTree->search($typo, 3, 2);
+foreach ($suggestions as $result) {
+    echo "  • {$result->word} (distance: {$result->distance})\n";
+}
+// Sortie :
+//   • javascript (distance: 2)
+//   • php (distance: 7)
 ```
 
 ### BloomFilter - Test d'existence
 
-**Description :** Filtre probabiliste qui teste l'appartenance d'un élément à un ensemble.
+**Description :** Filtre probabiliste qui utilise un tableau de bits et plusieurs fonctions de hachage. L'insertion définit plusieurs bits à 1. Le test vérifie si tous les bits correspondants sont à 1.
 
-**Complexité :** Insertion O(k), Existence O(k) où k = nombre de fonctions de hachage.
+**Théorie :** 
+- ✅ **Pas de faux négatifs** : Si le test retourne `false`, l'élément n'est **certainement pas** dans l'ensemble
+- ⚠️ **Faux positifs possibles** : Si le test retourne `true`, l'élément **probablement** dans l'ensemble
+- La probabilité de faux positifs est contrôlée par la taille du filtre et le nombre de fonctions de hachage
 
-**⚠️ Attention :** Peut avoir des faux positifs, jamais de faux négatifs.
-
-**Utilisation typique :** Vérification d'URLs déjà crawlées, filtrage de spam.
+**Utilisation typique :** Vérification d'URLs déjà crawlées, filtrage de spam, cache bloqué.
 
 ```php
 use AndyDefer\AlgoKIT\Algorithms\BloomFilter;
@@ -186,27 +224,54 @@ use AndyDefer\AlgoKIT\Storage\MemoryStorage;
 $storage = new MemoryStorage();
 $bloom = new BloomFilter($storage, 100000, 3, 'url_index');
 
-// Indexation des URLs
-$urls = ['https://example.com/page1', 'https://example.com/page2'];
+// Indexation des URLs déjà crawlées
+$urls = [
+    'https://example.com/page1',
+    'https://example.com/page2',
+    'https://example.com/page3'
+];
+
 foreach ($urls as $url) {
     $bloom->insert($url);
 }
 
-// Vérification
-if ($bloom->exists('https://example.com/page1')) {
-    echo "URL déjà indexée (probablement)\n";
+// Web crawler - éviter de recrawler
+function shouldCrawl(BloomFilter $bloom, string $url): bool {
+    if ($bloom->exists($url)) {
+        echo "⏭️  $url déjà crawlée\n";
+        return false;
+    }
+    echo "🕷️  Crawl de $url\n";
+    $bloom->insert($url);
+    return true;
 }
 
-if (!$bloom->exists('https://example.com/page3')) {
-    echo "URL certainement pas indexée\n";
+shouldCrawl($bloom, 'https://example.com/page1'); // ⏭️  déjà crawlée
+shouldCrawl($bloom, 'https://example.com/page4'); // 🕷️  Crawl
+shouldCrawl($bloom, 'https://example.com/page2'); // ⏭️  déjà crawlée
+
+// Vérification par lot
+use AndyDefer\AlgoKIT\Collections\BloomFilterCollection;
+use AndyDefer\AlgoKIT\Records\BloomFilterRecord;
+
+$collection = new BloomFilterCollection();
+$collection->add(new BloomFilterRecord('https://example.com/page1'));
+$collection->add(new BloomFilterRecord('https://example.com/page5'));
+
+$results = $bloom->existsBatch($collection);
+foreach ($results as $result) {
+    echo $result->value . " : " . ($result->exists ? '✅ existe' : '❌ inexistant') . "\n";
 }
 ```
 
 ### CountMinSketch - Comptage de fréquence
 
-**Description :** Structure probabiliste qui estime la fréquence des éléments.
+**Description :** Structure probabiliste utilisant une matrice de compteurs et plusieurs fonctions de hachage. Chaque insertion incrémente plusieurs compteurs. La fréquence estimée est le minimum des compteurs correspondants.
 
-**Complexité :** Insertion O(depth), Comptage O(depth) où depth = nombre de fonctions de hachage.
+**Théorie :**
+- ✅ **Jamais de sous-estimation** : La valeur estimée est toujours ≥ à la valeur réelle
+- ⚠️ **Surestimation possible** : Les collisions de hachage peuvent gonfler les compteurs
+- L'erreur est bornée par `(width / 2) × depth` avec une probabilité de `1 - e^(-depth)`
 
 **Utilisation typique :** Analyse de logs, top des recherches, trending topics.
 
@@ -217,23 +282,57 @@ use AndyDefer\AlgoKIT\Storage\MemoryStorage;
 $storage = new MemoryStorage();
 $cms = new CountMinSketch($storage, 10000, 5, 'search_frequencies');
 
-// Tracker les recherches
-$searches = ['php', 'laravel', 'php', 'python', 'php', 'laravel'];
+// Tracker les recherches utilisateurs
+$searches = [
+    'php', 'laravel', 'php', 'python', 'php', 
+    'laravel', 'php', 'javascript', 'php', 'golang'
+];
+
 foreach ($searches as $term) {
     $cms->add($term);
 }
 
 // Fréquences approximatives
-echo "php: " . $cms->count('php') . "\n";       // ~3
-echo "laravel: " . $cms->count('laravel') . "\n"; // ~2
-echo "python: " . $cms->count('python') . "\n";   // ~1
+echo "Fréquences approximatives :\n";
+echo "  php: " . $cms->count('php') . "\n";          // ~5
+echo "  laravel: " . $cms->count('laravel') . "\n";  // ~2
+echo "  python: " . $cms->count('python') . "\n";    // ~1
+echo "  ruby: " . $cms->count('ruby') . "\n";        // ~0
+
+// Avec contexte (par site)
+$cms->add('php', 'site_a');
+$cms->add('php', 'site_a');
+$cms->add('php', 'site_b');
+
+echo "php sur site_a: " . $cms->count('php', 'site_a') . "\n"; // ~2
+echo "php sur site_b: " . $cms->count('php', 'site_b') . "\n"; // ~1
+
+// Opérations batch
+use AndyDefer\AlgoKIT\Collections\CountMinSketchCollection;
+use AndyDefer\AlgoKIT\Records\CountMinSketchRecord;
+
+$batch = new CountMinSketchCollection();
+$batch->add(new CountMinSketchRecord('php'));
+$batch->add(new CountMinSketchRecord('php'));
+$batch->add(new CountMinSketchRecord('laravel'));
+
+$cms->addBatch($batch);
+echo "php après batch: " . $cms->count('php') . "\n"; // ~7
 ```
 
 ### HyperLogLog - Comptage d'éléments uniques
 
-**Description :** Estime le nombre d'éléments distincts dans un ensemble.
+**Description :** Algorithme qui estime le nombre d'éléments distincts en utilisant un tableau de registres. Chaque valeur est hachée, et le registre correspondant est mis à jour avec le nombre de zéros initiaux du hash.
 
-**Complexité :** Insertion O(1), Comptage O(m) où m = 2^precision.
+**Théorie :** 
+- L'algorithme observe la distribution des bits dans les hashs
+- Plus il y a d'éléments uniques, plus il est probable d'observer des hashs avec de nombreux zéros initiaux
+- La précision est contrôlée par le nombre de registres (2^precision)
+
+**Erreur standard :** `1.04 / sqrt(2^precision)`
+- `precision = 10` (1024 registres) → erreur ~3.2%
+- `precision = 14` (16384 registres) → erreur ~0.8%
+- `precision = 16` (65536 registres) → erreur ~0.4%
 
 **Utilisation typique :** Visiteurs uniques, événements distincts, analyse de données massives.
 
@@ -244,21 +343,52 @@ use AndyDefer\AlgoKIT\Storage\MemoryStorage;
 $storage = new MemoryStorage();
 $hll = new HyperLogLog($storage, 14, 'unique_visitors');
 
-// Flux de visiteurs
-$visitors = ['user_123', 'user_456', 'user_123', 'user_789', 'user_456'];
+// Simuler un flux de visiteurs
+$visitors = [
+    'user_123', 'user_456', 'user_123', 'user_789', 
+    'user_456', 'user_321', 'user_123', 'user_654'
+];
+
 foreach ($visitors as $userId) {
     $hll->add($userId);
 }
 
 $unique = $hll->count();
-echo "Visiteurs uniques: $unique\n"; // ~3
+echo "Visiteurs uniques: $unique\n"; // ~5
+
+// Par date (contexte)
+$dates = ['2024-01-01', '2024-01-02'];
+
+foreach ($visitors as $index => $userId) {
+    $date = $dates[$index % 2];
+    $hll->add($userId, $date);
+}
+
+echo "2024-01-01: " . $hll->count('2024-01-01') . " utilisateurs\n";
+echo "2024-01-02: " . $hll->count('2024-01-02') . " utilisateurs\n";
+echo "Total: " . $hll->count() . " utilisateurs\n";
+
+// Opérations batch
+use AndyDefer\AlgoKIT\Collections\HyperLogLogCollection;
+use AndyDefer\AlgoKIT\Records\HyperLogLogRecord;
+
+$batch = new HyperLogLogCollection();
+$batch->add(new HyperLogLogRecord('user_999'));
+$batch->add(new HyperLogLogRecord('user_888', '2024-01-03'));
+
+$hll->addBatch($batch);
+
+echo "Nouveau total: " . $hll->count() . "\n"; // ~6
 ```
 
 ### TopK - Éléments les plus fréquents
 
-**Description :** Maintient une liste des K éléments les plus fréquents.
+**Description :** Structure qui maintient les K éléments les plus fréquents dans un flux. Utilise un espace constant et un algorithme de remplacement du moins fréquent.
 
-**Complexité :** Insertion O(k), getTop O(k) où k = nombre d'éléments conservés.
+**Théorie :** 
+- La structure conserve exactement K éléments
+- À chaque nouvel élément, si la liste est pleine, l'élément le moins fréquent est remplacé si le nouvel élément est plus fréquent
+- Idéal pour les flux où on ne peut pas stocker tous les éléments
 
 **Utilisation typique :** Tendances, produits populaires, top des recherches.
 
@@ -269,37 +399,74 @@ use AndyDefer\AlgoKIT\Storage\MemoryStorage;
 $storage = new MemoryStorage();
 $topK = new TopK($storage, 3, 'top_searches');
 
-// Flux de recherches
-$searches = ['php', 'laravel', 'php', 'python', 'php', 'laravel'];
+// Flux de recherches en temps réel
+$searches = ['php', 'laravel', 'php', 'python', 'php', 'laravel', 'php', 'golang'];
+
 foreach ($searches as $term) {
     $topK->add($term);
 }
 
-$top = $topK->getTop();
-foreach ($top as $item) {
-    echo "{$item->value}: {$item->count}\n";
+// Top 3 des recherches
+echo "Top recherches :\n";
+foreach ($topK->getTop() as $rank => $item) {
+    echo "  #" . ($rank + 1) . " {$item->value}: {$item->count}\n";
 }
-// Sortie:
-// php: 3
-// laravel: 2
-// python: 1
+// Sortie :
+// Top recherches :
+//   #1 php: 4
+//   #2 laravel: 2
+//   #3 python: 1
+
+// Avec incréments plus importants
+$topK->add('laravel', 5);
+$topK->add('golang', 3);
+
+echo "Après incréments :\n";
+foreach ($topK->getTop() as $rank => $item) {
+    echo "  #" . ($rank + 1) . " {$item->value}: {$item->count}\n";
+}
+// Sortie :
+// Après incréments :
+//   #1 laravel: 7
+//   #2 php: 4
+//   #3 golang: 3
+
+// Opérations batch
+use AndyDefer\AlgoKIT\Collections\TopKCollection;
+use AndyDefer\AlgoKIT\Records\TopKRecord;
+
+$batch = new TopKCollection();
+$batch->add(new TopKRecord('php', 10));
+$batch->add(new TopKRecord('javascript', 2));
+
+$topK->addBatch($batch);
+
+echo "Final :\n";
+foreach ($topK->getTop() as $rank => $item) {
+    echo "  #" . ($rank + 1) . " {$item->value}: {$item->count}\n";
+}
+// Sortie :
+// Final :
+//   #1 php: 14
+//   #2 laravel: 7
+//   #3 golang: 3
 ```
 
 ---
 
 ## Cas d'usage réels
 
-### Compteur d'IP uniques par jour
+### 1. Compteur d'IP uniques par jour
 
 **Problème :** Compter le nombre d'IP uniques qui visitent un site web chaque jour, avec des millions de requêtes.
 
-**Solution :** HyperLogLog par jour avec contexte temporel.
+**Solution :** HyperLogLog avec contexte temporel. 64KB de mémoire suffisent pour compter des milliards d'IP uniques.
 
 ```php
 use AndyDefer\AlgoKIT\Algorithms\HyperLogLog;
 use AndyDefer\AlgoKIT\Storage\MemoryStorage;
-use AndyDefer\AlgoKIT\Records\HyperLogLogRecord;
 use AndyDefer\AlgoKIT\Collections\HyperLogLogCollection;
+use AndyDefer\AlgoKIT\Records\HyperLogLogRecord;
 
 class UniqueIPCounter
 {
@@ -310,9 +477,6 @@ class UniqueIPCounter
         $this->hll = $hll;
     }
     
-    /**
-     * Enregistre une visite d'IP
-     */
     public function trackVisit(string $ip): void
     {
         $date = date('Y-m-d');
@@ -320,26 +484,17 @@ class UniqueIPCounter
         $this->hll->add($ip); // Global
     }
     
-    /**
-     * Récupère le nombre d'IP uniques pour une date
-     */
     public function getUniqueIPs(string $date): int
     {
         return $this->hll->count($date);
     }
     
-    /**
-     * Récupère le nombre total d'IP uniques (toutes dates confondues)
-     */
     public function getTotalUniqueIPs(): int
     {
         return $this->hll->count();
     }
     
-    /**
-     * Récupère les IP uniques pour plusieurs dates
-     */
-    public function getUniqueIPsBatch(array $dates): array
+    public function getDailyStats(array $dates): array
     {
         $collection = new HyperLogLogCollection();
         foreach ($dates as $date) {
@@ -356,7 +511,7 @@ class UniqueIPCounter
 }
 
 // ============================================
-// UTILISATION RÉELLE
+// UTILISATION
 // ============================================
 
 $storage = new MemoryStorage();
@@ -376,19 +531,17 @@ foreach ($visits as $date => $ips) {
     }
 }
 
-// Récupérer les statistiques
 echo "=== Statistiques IP uniques ===\n";
 echo "2024-01-01: " . $counter->getUniqueIPs('2024-01-01') . " IP uniques\n";
 echo "2024-01-02: " . $counter->getUniqueIPs('2024-01-02') . " IP uniques\n";
 echo "2024-01-03: " . $counter->getUniqueIPs('2024-01-03') . " IP uniques\n";
 echo "Total: " . $counter->getTotalUniqueIPs() . " IP uniques\n";
 
-// Batch pour plusieurs dates
-$batch = $counter->getUniqueIPsBatch(['2024-01-01', '2024-01-02']);
-echo "Batch: " . print_r($batch, true);
+$stats = $counter->getDailyStats(['2024-01-01', '2024-01-02']);
+echo "Batch: " . print_r($stats, true);
 ```
 
-### Système de recherche avec autocomplétion
+### 2. Système de recherche avec autocomplétion
 
 **Problème :** Implémenter un système de recherche avec suggestions en temps réel et correction des fautes.
 
@@ -420,28 +573,22 @@ class SearchEngine
         $this->topK = $topK;
     }
     
-    /**
-     * Indexe un nouveau terme de recherche
-     */
     public function indexTerm(string $term): void
     {
         $this->trie->insert(strtolower($term));
         $this->bkTree->insert(strtolower($term));
     }
     
-    /**
-     * Effectue une recherche avec autocomplétion et correction
-     */
     public function search(string $query, int $limit = 10): array
     {
         $query = strtolower(trim($query));
-        $result = [];
+        $results = [];
         
         // 1. Autocomplétion (Trie)
         if (strlen($query) > 0) {
             $suggestions = $this->trie->search($query, null, $limit);
             foreach ($suggestions as $suggestion) {
-                $result[] = [
+                $results[] = [
                     'term' => $suggestion->word,
                     'type' => 'autocomplete',
                     'score' => $this->cms->count($suggestion->word) + 1
@@ -449,28 +596,24 @@ class SearchEngine
             }
             
             // 2. Correction orthographique (BKTree)
-            if (count($result) < $limit) {
-                $corrections = $this->bkTree->search($query, 2, $limit - count($result));
+            if (count($results) < $limit) {
+                $corrections = $this->bkTree->search($query, 2, $limit - count($results));
                 foreach ($corrections as $correction) {
-                    $result[] = [
-                        'term' => $correction['word'],
+                    $results[] = [
+                        'term' => $correction->word,
                         'type' => 'correction',
-                        'distance' => $correction['distance'],
-                        'score' => $this->cms->count($correction['word']) + 1
+                        'distance' => $correction->distance,
+                        'score' => $this->cms->count($correction->word) + 1
                     ];
                 }
             }
         }
         
-        // 3. Tri par score décroissant
-        usort($result, fn($a, $b) => $b['score'] <=> $a['score']);
-        
-        return array_slice($result, 0, $limit);
+        // Tri par score décroissant
+        usort($results, fn($a, $b) => $b['score'] <=> $a['score']);
+        return array_slice($results, 0, $limit);
     }
     
-    /**
-     * Enregistre une recherche effectuée
-     */
     public function trackSearch(string $term): void
     {
         $term = strtolower(trim($term));
@@ -478,9 +621,6 @@ class SearchEngine
         $this->topK->add($term);
     }
     
-    /**
-     * Récupère les termes les plus populaires
-     */
     public function getPopularTerms(int $limit = 10): array
     {
         $top = $this->topK->getTop();
@@ -544,11 +684,11 @@ foreach ($popular as $item) {
 }
 ```
 
-### Analyse de logs en temps réel
+### 3. Analyse de logs en temps réel
 
 **Problème :** Analyser les logs d'accès pour identifier les IPs les plus actives, les endpoints les plus sollicités, et les erreurs fréquentes.
 
-**Solution :** CountMinSketch pour les fréquences, TopK pour les leaders, HyperLogLog pour les IP uniques.
+**Solution :** Combinaison de CountMinSketch (fréquences), TopK (leaders) et HyperLogLog (IP uniques).
 
 ```php
 use AndyDefer\AlgoKIT\Algorithms\CountMinSketch;
@@ -572,9 +712,6 @@ class LogAnalyzer
         $this->hll = $hll;
     }
     
-    /**
-     * Traite une ligne de log
-     */
     public function processLog(array $log): void
     {
         $ip = $log['ip'] ?? 'unknown';
@@ -582,7 +719,7 @@ class LogAnalyzer
         $status = $log['status'] ?? 200;
         $date = date('Y-m-d');
         
-        // Comptage des fréquences
+        // Fréquences
         $this->cms->add("ip:{$ip}");
         $this->cms->add("endpoint:{$endpoint}");
         $this->cms->add("status:{$status}");
@@ -594,12 +731,9 @@ class LogAnalyzer
         
         // IP uniques par jour
         $this->hll->add($ip, "daily_{$date}");
-        $this->hll->add($ip); // Global
+        $this->hll->add($ip);
     }
     
-    /**
-     * Récupère les IPs les plus actives
-     */
     public function getTopIPs(int $limit = 10): array
     {
         $top = $this->topK->getTop();
@@ -617,9 +751,6 @@ class LogAnalyzer
         return array_slice($ips, 0, $limit);
     }
     
-    /**
-     * Récupère les endpoints les plus sollicités
-     */
     public function getTopEndpoints(int $limit = 10): array
     {
         $top = $this->topK->getTop();
@@ -637,9 +768,6 @@ class LogAnalyzer
         return array_slice($endpoints, 0, $limit);
     }
     
-    /**
-     * Récupère les codes HTTP les plus fréquents
-     */
     public function getTopStatuses(int $limit = 5): array
     {
         $top = $this->topK->getTop();
@@ -656,17 +784,11 @@ class LogAnalyzer
         return array_slice($statuses, 0, $limit);
     }
     
-    /**
-     * Récupère le nombre d'IP uniques pour une date
-     */
     public function getUniqueIPsForDate(string $date): int
     {
         return $this->hll->count("daily_{$date}");
     }
     
-    /**
-     * Récupère le nombre total d'IP uniques
-     */
     public function getTotalUniqueIPs(): int
     {
         return $this->hll->count();
@@ -674,7 +796,7 @@ class LogAnalyzer
 }
 
 // ============================================
-// UTILISATION RÉELLE
+// UTILISATION
 // ============================================
 
 $storage = new MemoryStorage();
@@ -701,7 +823,6 @@ foreach ($logs as $log) {
     $analyzer->processLog($log);
 }
 
-// Statistiques
 echo "=== TOP IPS ===\n";
 foreach ($analyzer->getTopIPs(5) as $ip) {
     echo "- {$ip['ip']}: {$ip['requests']} requêtes\n";
@@ -722,9 +843,9 @@ echo "Total: " . $analyzer->getTotalUniqueIPs() . " IP uniques\n";
 echo "Aujourd'hui: " . $analyzer->getUniqueIPsForDate(date('Y-m-d')) . " IP uniques\n";
 ```
 
-### Détection de spam
+### 4. Détection de spam
 
-**Problème :** Détecter les messages de spam en vérifiant si le contenu a déjà été vu.
+**Problème :** Détecter les messages de spam en vérifiant si le contenu a déjà été vu ou contient des mots-clés suspects.
 
 **Solution :** BloomFilter pour la détection rapide avec contrôle des faux positifs.
 
@@ -737,22 +858,17 @@ use AndyDefer\AlgoKIT\Records\BloomFilterRecord;
 class SpamDetector
 {
     private BloomFilter $bloom;
-    private array $spamKeywords = [];
     
     public function __construct(BloomFilter $bloom)
     {
         $this->bloom = $bloom;
     }
     
-    /**
-     * Marque un message comme spam
-     */
     public function markAsSpam(string $content): void
     {
         $hash = md5($content);
         $this->bloom->insert($hash, 'spam');
         
-        // Extraire les mots-clés
         $words = explode(' ', strtolower($content));
         foreach ($words as $word) {
             if (strlen($word) > 3) {
@@ -761,19 +877,14 @@ class SpamDetector
         }
     }
     
-    /**
-     * Vérifie si un message est probablement du spam
-     */
     public function isSpam(string $content): bool
     {
         $hash = md5($content);
         
-        // Vérification exacte
         if ($this->bloom->exists($hash, 'spam')) {
             return true;
         }
         
-        // Vérification par mots-clés
         $words = explode(' ', strtolower($content));
         $spamScore = 0;
         $totalWords = 0;
@@ -787,13 +898,9 @@ class SpamDetector
             }
         }
         
-        // Si plus de 30% des mots sont des mots-clés de spam
         return $totalWords > 0 && ($spamScore / $totalWords) > 0.3;
     }
     
-    /**
-     * Vérifie plusieurs messages en batch
-     */
     public function isSpamBatch(array $messages): array
     {
         $collection = new BloomFilterCollection();
@@ -804,26 +911,15 @@ class SpamDetector
         
         $results = $this->bloom->existsBatch($collection);
         $spam = [];
-        
         foreach ($results as $result) {
             $spam[$result->value] = $result->exists;
         }
-        
         return $spam;
-    }
-    
-    /**
-     * Nettoie les données de spam
-     */
-    public function clearSpamData(): void
-    {
-        $this->bloom->clear('spam');
-        $this->bloom->clear('spam_keywords');
     }
 }
 
 // ============================================
-// UTILISATION RÉELLE
+// UTILISATION
 // ============================================
 
 $storage = new MemoryStorage();
@@ -844,25 +940,25 @@ foreach ($spams as $spam) {
 
 // Tester des messages
 $messages = [
-    'Buy cheap viagra now!',        // Spam
-    'Hello, how are you today?',    // Ham
-    'Get rich quick!!!',            // Spam
-    'Meeting at 3pm tomorrow',      // Ham
+    'Buy cheap viagra now!',
+    'Hello, how are you today?',
+    'Get rich quick!!!',
+    'Meeting at 3pm tomorrow',
+    'FREE money making opportunity! Click here'
 ];
 
 echo "=== DÉTECTION DE SPAM ===\n";
 foreach ($messages as $message) {
     $isSpam = $detector->isSpam($message);
-    echo $isSpam ? "[SPAM] " : "[HAM]  ";
-    echo $message . "\n";
+    echo ($isSpam ? "[SPAM] " : "[HAM]  ") . $message . "\n";
 }
 ```
 
-### Recommandation de produits
+### 5. Système de recommandation
 
-**Problème :** Recommander des produits à un utilisateur en fonction de ses vues antérieures.
+**Problème :** Recommander des produits à un utilisateur en fonction de ses vues antérieures et de la popularité globale.
 
-**Solution :** CountMinSketch pour le suivi des vues, TopK pour les produits populaires.
+**Solution :** CountMinSketch (suivi des vues) + TopK (produits populaires) + filtrage par tags.
 
 ```php
 use AndyDefer\AlgoKIT\Algorithms\CountMinSketch;
@@ -883,9 +979,6 @@ class RecommendationEngine
         $this->topK = $topK;
     }
     
-    /**
-     * Ajoute un produit au catalogue
-     */
     public function addProduct(string $id, string $name, array $tags): void
     {
         $this->productCatalog[$id] = [
@@ -894,9 +987,6 @@ class RecommendationEngine
         ];
     }
     
-    /**
-     * Enregistre une vue d'un produit par un utilisateur
-     */
     public function trackView(string $userId, string $productId): void
     {
         $key = "{$userId}:{$productId}";
@@ -904,9 +994,6 @@ class RecommendationEngine
         $this->topK->add($key);
     }
     
-    /**
-     * Enregistre plusieurs vues en batch
-     */
     public function trackViewBatch(array $views): void
     {
         $collection = new CountMinSketchCollection();
@@ -917,9 +1004,6 @@ class RecommendationEngine
         $this->cms->addBatch($collection);
     }
     
-    /**
-     * Récupère les préférences d'un utilisateur
-     */
     public function getUserPreferences(string $userId, int $limit = 5): array
     {
         $top = $this->topK->getTop();
@@ -940,13 +1024,9 @@ class RecommendationEngine
                 }
             }
         }
-        
         return $preferences;
     }
     
-    /**
-     * Récupère des recommandations basées sur les préférences
-     */
     public function getRecommendations(string $userId, int $limit = 5): array
     {
         $preferences = $this->getUserPreferences($userId, 3);
@@ -956,16 +1036,10 @@ class RecommendationEngine
             $tags = array_merge($tags, $this->productCatalog[$pref['product_id']]['tags']);
         }
         
-        // Compter les tags
-        $tagCounts = [];
-        foreach ($tags as $tag) {
-            $tagCounts[$tag] = ($tagCounts[$tag] ?? 0) + 1;
-        }
-        
+        $tagCounts = array_count_values($tags);
         arsort($tagCounts);
         $topTags = array_slice(array_keys($tagCounts), 0, 3);
         
-        // Trouver les produits avec ces tags
         $recommendations = [];
         foreach ($this->productCatalog as $id => $product) {
             if (array_intersect($product['tags'], $topTags)) {
@@ -979,13 +1053,9 @@ class RecommendationEngine
                 break;
             }
         }
-        
         return $recommendations;
     }
     
-    /**
-     * Récupère les produits les plus populaires globalement
-     */
     public function getPopularProducts(int $limit = 10): array
     {
         $top = $this->topK->getTop();
@@ -1007,13 +1077,12 @@ class RecommendationEngine
                 break;
             }
         }
-        
         return $result;
     }
 }
 
 // ============================================
-// UTILISATION RÉELLE
+// UTILISATION
 // ============================================
 
 $storage = new MemoryStorage();
@@ -1037,7 +1106,7 @@ foreach ($products as $product) {
     $engine->addProduct($product['id'], $product['name'], $product['tags']);
 }
 
-// Tracking des vues utilisateurs
+// Tracking des vues
 $views = [
     ['user_id' => 'user_123', 'product_id' => 'p1'],
     ['user_id' => 'user_123', 'product_id' => 'p1'],
@@ -1051,7 +1120,6 @@ foreach ($views as $view) {
     $engine->trackView($view['user_id'], $view['product_id']);
 }
 
-// Récupérer les recommandations
 echo "=== PRÉFÉRENCES DE l'UTILISATEUR ===\n";
 $preferences = $engine->getUserPreferences('user_123');
 foreach ($preferences as $pref) {
@@ -1087,7 +1155,6 @@ $trie = new Trie($storage, 'my_trie');
 ### Avec RedisStorage (exemple)
 
 ```php
-// À implémenter selon votre besoin
 class RedisStorage implements StorageInterface
 {
     private \Redis $redis;
@@ -1124,6 +1191,7 @@ $redis = new \Redis();
 $redis->connect('localhost', 6379);
 $storage = new RedisStorage($redis);
 $trie = new Trie($storage, 'persistent_trie');
+// Les données sont persistées dans Redis
 ```
 
 ---
@@ -1132,82 +1200,68 @@ $trie = new Trie($storage, 'persistent_trie');
 
 ### Comparatif des structures
 
-| Structure | Insertion | Recherche | Mémoire | Précision |
-|-----------|-----------|-----------|---------|-----------|
-| Trie | O(n) | O(n + m) | Élevée | 100% |
-| BKTree | O(log n) | O(n) | Moyenne | 100% |
-| BloomFilter | O(k) | O(k) | Très faible | ~99% |
-| CountMinSketch | O(d) | O(d) | Très faible | ~95% |
-| HyperLogLog | O(1) | O(m) | Très faible | ~98% |
-| TopK | O(k) | O(k) | Faible | 100% |
+| Structure | Insertion | Recherche | Mémoire | Précision | Idéal pour |
+|-----------|-----------|-----------|---------|-----------|------------|
+| Trie | O(L) | O(L + M) | Élevée | 100% | Autocomplétion |
+| BKTree | O(log n) | O(n) | Moyenne | 100% | Correction orthographique |
+| BloomFilter | O(k) | O(k) | Très faible | ~99% | Test d'existence |
+| CountMinSketch | O(d) | O(d) | Très faible | ~95% | Comptage de fréquence |
+| HyperLogLog | O(1) | O(m) | Très faible | ~98% | Éléments uniques |
+| TopK | O(k) | O(k) | Faible | 100% | Top fréquents |
 
 ### Recommandations
 
-- **Précision absolue** → Trie, BKTree, TopK
-- **Mémoire limitée** → BloomFilter, CountMinSketch, HyperLogLog
-- **Flux massifs** → CountMinSketch, HyperLogLog
-- **Recherche temps réel** → Trie, BloomFilter
+| Besoin | Structure recommandée |
+|--------|----------------------|
+| Précision absolue | Trie, BKTree, TopK |
+| Mémoire limitée | BloomFilter, CountMinSketch, HyperLogLog |
+| Flux massifs | CountMinSketch, HyperLogLog |
+| Recherche temps réel | Trie, BloomFilter |
+| Correction orthographique | BKTree |
+| Comptage d'occurrences | CountMinSketch |
+| Éléments uniques | HyperLogLog |
+| Classement | TopK |
 
 ---
 
-## Exemples complets
+## API Reference
 
-### Système de monitoring complet
+### Structures
 
-```php
-class MonitoringSystem
-{
-    private CountMinSketch $cms;
-    private HyperLogLog $hll;
-    private TopK $topK;
-    private BloomFilter $bloom;
-    
-    public function __construct(
-        StorageInterface $storage
-    ) {
-        $this->cms = new CountMinSketch($storage, 50000, 5, 'monitor_cms');
-        $this->hll = new HyperLogLog($storage, 14, 'monitor_hll');
-        $this->topK = new TopK($storage, 20, 'monitor_topk');
-        $this->bloom = new BloomFilter($storage, 100000, 3, 'monitor_bloom');
-    }
-    
-    public function trackEvent(array $event): void
-    {
-        $type = $event['type'] ?? 'unknown';
-        $userId = $event['user_id'] ?? 'anonymous';
-        $ip = $event['ip'] ?? '0.0.0.0';
-        
-        // Fréquences
-        $this->cms->add("type:{$type}");
-        $this->cms->add("ip:{$ip}");
-        
-        // Top K
-        $this->topK->add("type:{$type}");
-        $this->topK->add("ip:{$ip}");
-        
-        // IP uniques
-        $this->hll->add($ip);
-        $this->hll->add($ip, 'daily_' . date('Y-m-d'));
-        
-        // Vérification de doublon
-        $eventHash = md5(json_encode($event));
-        if (!$this->bloom->exists($eventHash)) {
-            $this->bloom->insert($eventHash);
-            // Traiter l'événement
-        }
-    }
-    
-    public function getStats(): array
-    {
-        return [
-            'unique_ips' => $this->hll->count(),
-            'daily_unique_ips' => $this->hll->count('daily_' . date('Y-m-d')),
-            'top_events' => array_slice($this->topK->getTop()->toArray(), 0, 5),
-            'processed_events' => $this->bloom->exists('dummy') ? 'N/A' : 'Active'
-        ];
-    }
-}
-```
+- [Trie](docs/api-reference/algorithms/trie.md) - Autocomplétion et recherche par préfixe
+- [BKTree](docs/api-reference/algorithms/bk-tree.md) - Correction orthographique et recherche floue
+- [BloomFilter](docs/api-reference/algorithms/bloom-filter.md) - Test probabiliste d'appartenance
+- [CountMinSketch](docs/api-reference/algorithms/count-min-sketch.md) - Comptage probabiliste de fréquences
+- [HyperLogLog](docs/api-reference/algorithms/hyper-log-log.md) - Estimation de cardinalité
+- [TopK](docs/api-reference/algorithms/top-k.md) - Suivi des éléments les plus fréquents
+
+### Interfaces
+
+- `StorageInterface` - Interface de persistance
+- `TrieInterface` - Interface du Trie
+- `BloomFilterInterface` - Interface du BloomFilter
+- `CountMinSketchInterface` - Interface du CountMinSketch
+- `HyperLogLogInterface` - Interface du HyperLogLog
+- `TopKInterface` - Interface du TopK
+- `TreeInterface` - Interface du BKTree
+
+### Collections
+
+- `TrieCollection` / `TrieResultCollection`
+- `BloomFilterCollection` / `BloomFilterResultCollection`
+- `CountMinSketchCollection` / `CountMinSketchResultCollection`
+- `HyperLogLogCollection` / `HyperLogLogResultCollection`
+- `TopKCollection` / `TopKResultCollection`
+- `BKTreeNodeCollection` / `BKTreeResultCollection`
+
+### Records
+
+- `TrieRecord` / `TrieResultRecord`
+- `BloomFilterRecord` / `BloomFilterResultRecord`
+- `CountMinSketchRecord` / `CountMinSketchResultRecord`
+- `HyperLogLogRecord` / `HyperLogLogResultRecord`
+- `TopKRecord` / `TopKResultRecord`
+- `BKTreeNodeRecord` / `BKTreeResultRecord`
 
 ---
 

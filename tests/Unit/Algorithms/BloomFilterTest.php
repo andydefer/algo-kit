@@ -8,10 +8,10 @@ use AndyDefer\AlgoKIT\Algorithms\BloomFilter;
 use AndyDefer\AlgoKIT\Collections\BloomFilterCollection;
 use AndyDefer\AlgoKIT\Collections\BloomFilterResultCollection;
 use AndyDefer\AlgoKIT\Records\BloomFilterRecord;
-use AndyDefer\AlgoKIT\Tests\JsonlStorageTestCase;
+use AndyDefer\AlgoKIT\Tests\SqliteStorageTestCase;
 use AndyDefer\StorageKit\Storage\MemoryStorage;
 
-final class BloomFilterTest extends JsonlStorageTestCase
+final class BloomFilterTest extends SqliteStorageTestCase
 {
     private BloomFilter $bloom;
 

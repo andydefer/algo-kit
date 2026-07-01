@@ -7,10 +7,10 @@ namespace AndyDefer\AlgoKIT\Tests\Unit\Algorithms;
 use AndyDefer\AlgoKIT\Algorithms\BKTree;
 use AndyDefer\AlgoKIT\Collections\BKTreeResultCollection;
 use AndyDefer\AlgoKIT\Records\BKTreeResultRecord;
-use AndyDefer\AlgoKIT\Tests\SessionStorageTestCase;
+use AndyDefer\AlgoKIT\Tests\SqliteStorageTestCase;
 use AndyDefer\StorageKit\Storage\MemoryStorage;
 
-final class BKTreeTest extends SessionStorageTestCase
+final class BKTreeTest extends SqliteStorageTestCase
 {
     private BKTree $bkTree;
 

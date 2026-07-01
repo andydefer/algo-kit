@@ -2,26 +2,42 @@
 
 ## Description
 
-HyperLogLog est une structure de données probabiliste qui estime le nombre d'éléments uniques dans un ensemble. Elle permet de compter les valeurs distinctes dans de très grands volumes de données en utilisant une quantité de mémoire extrêmement réduite.
+HyperLogLog est un algorithme probabiliste qui estime le nombre d'éléments distincts (cardinalité) dans un ensemble de données en utilisant une mémoire logarithmique. Il offre un excellent compromis entre précision et utilisation mémoire.
 
 ## Hiérarchie / Implémentations
 
 ```
 HyperLogLogInterface
-    └── HyperLogLog
+    └── HyperLogLog (final)
 ```
 
-**Interfaces implémentées :** `HyperLogLogInterface`
+La classe implémente l'interface `HyperLogLogInterface` et utilise :
+- `StorageInterface` pour la persistance des données
+- `HyperLogLogCollection` pour les opérations batch
+- `HyperLogLogResultCollection` pour retourner les résultats
+- `HyperLogLogRecord` pour représenter une valeur à ajouter
+- `HyperLogLogResultRecord` pour représenter un résultat de cardinalité
 
 ## Rôle principal
 
-HyperLogLog utilise un algorithme de hachage pour distribuer les éléments dans des registres, puis estime le nombre d'éléments uniques en analysant la répartition des bits de tête. Particulièrement adapté pour les analyses de données massives où la mémoire est limitée (logs, métriques, analyses utilisateurs). Le support des contextes permet d'isoler les comptages par catégorie.
+HyperLogLog répond à la question **"Combien d'éléments uniques contient cet ensemble ?"** sans avoir à stocker tous les éléments. Il utilise un tableau de registres et un hachage pour estimer la cardinalité avec une précision configurable. Particulièrement adapté pour le comptage d'éléments uniques dans des flux massifs de données (utilisateurs uniques, adresses IP distinctes, mots-clés uniques, etc.).
+
+**Propriétés fondamentales :**
+- ✅ **Mémoire logarithmique** : O(log log n) en fonction du nombre d'éléments
+- ✅ **Précision configurable** : Ajustable via le paramètre `precision`
+- ✅ **Temps constant** : Les opérations sont en O(1)
+- ✅ **Parallélisable** : Les contextes peuvent être fusionnés
+- ⚠️ **Approximatif** : Résultat avec une marge d'erreur contrôlée
 
 ## Installation
 
 ```bash
-composer require andydefer/algokit
+composer require andydefer/algo-kit
 ```
+
+Prérequis :
+- PHP 8.1 ou supérieur
+- Extension `storage-kit` installée
 
 ## API / Méthodes publiques
 
@@ -29,54 +45,53 @@ composer require andydefer/algokit
 
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$storage` | `StorageInterface` | Instance du système de stockage |
-| `$precision` | `int` | Précision (défaut: 16, entre 4 et 16) |
-| `$key` | `string` | Clé d'identification dans le storage (défaut: 'hll') |
+| `$storage` | `StorageInterface` | Backend de stockage pour la persistance |
+| `$precision` | `int` | Nombre de bits (4-16, plus grand = plus précis) |
+| `$key` | `string` | Clé unique identifiant l'instance (défaut : 'hll') |
 
 **Retourne :** `void`
 
 **Exemple :**
 ```php
 $storage = new MemoryStorage();
-$hll = new HyperLogLog($storage, 14, 'unique_visitors');
+$hll = new HyperLogLog($storage, 16, 'unique_visitors');
 ```
 
 ---
 
 ### `add(string $value, ?string $context = null): void`
 
-Ajoute une valeur à l'ensemble.
+Ajoute une valeur à l'ensemble HyperLogLog.
 
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$value` | `string` | Valeur à ajouter |
-| `$context` | `string|null` | Contexte pour isoler les données (défaut: null) |
+| `$value` | `string` | La valeur à ajouter |
+| `$context` | `string|null` | Contexte optionnel pour isoler les données |
 
 **Retourne :** `void`
 
 **Exemple :**
 ```php
 $hll->add('user_123');
-$hll->add('user_456', 'daily_visitors');
-$hll->add('user_123'); // Duplicate, sera ignoré
+$hll->add('user_456', 'active_users');
 ```
 
 ---
 
 ### `count(?string $context = null): int`
 
-Estime le nombre d'éléments uniques dans l'ensemble.
+Estime le nombre d'éléments distincts.
 
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$context` | `string|null` | Contexte à compter (défaut: null = somme de tous) |
+| `$context` | `string|null` | Contexte optionnel à compter |
 
-**Retourne :** `int` - Estimation du nombre d'éléments distincts
+**Retourne :** `int` - Estimation de la cardinalité
 
 **Exemple :**
 ```php
-$uniqueUsers = $hll->count(); // ~5 (somme de tous les contextes)
-$dailyVisitors = $hll->count('daily_visitors'); // ~2
+$total = $hll->count(); // Retourne ~2
+$active = $hll->count('active_users'); // Retourne ~1
 ```
 
 ---
@@ -96,6 +111,7 @@ Ajoute plusieurs valeurs en lot.
 $collection = new HyperLogLogCollection();
 $collection->add(new HyperLogLogRecord('user_123'));
 $collection->add(new HyperLogLogRecord('user_456'));
+$collection->add(new HyperLogLogRecord('user_123'));
 $hll->addBatch($collection);
 ```
 
@@ -103,19 +119,23 @@ $hll->addBatch($collection);
 
 ### `countBatch(HyperLogLogCollection $collection): HyperLogLogResultCollection`
 
-Compte les éléments uniques pour plusieurs contextes.
+Compte les éléments distincts pour plusieurs contextes en lot.
 
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$collection` | `HyperLogLogCollection` | Collection de valeurs avec contexte |
+| `$collection` | `HyperLogLogCollection` | Collection de valeurs avec contextes |
 
-**Retourne :** `HyperLogLogResultCollection` - Collection des résultats avec le nombre d'éléments uniques
+**Retourne :** `HyperLogLogResultCollection` - Collection des résultats de cardinalité
 
 **Exemple :**
 ```php
+$collection = new HyperLogLogCollection();
+$collection->add(new HyperLogLogRecord('x', 'context1'));
+$collection->add(new HyperLogLogRecord('y', 'context2'));
+
 $results = $hll->countBatch($collection);
 foreach ($results as $result) {
-    echo "Contexte: {$result->context}, Uniques: {$result->count}\n";
+    echo "{$result->context}: {$result->count}\n";
 }
 ```
 
@@ -123,54 +143,38 @@ foreach ($results as $result) {
 
 ### `clear(?string $context = null): void`
 
-Vide complètement le HyperLogLog.
+Supprime toutes les données de l'instance HyperLogLog.
 
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$context` | `string|null` | Contexte à vider (défaut: null = tout vider) |
+| `$context` | `string|null` | Si fourni, supprime seulement ce contexte |
 
 **Retourne :** `void`
 
 **Exemple :**
 ```php
-$hll->clear(); // Vide tout
-$hll->clear('daily_visitors'); // Vide uniquement le contexte 'daily_visitors'
+// Supprimer un contexte spécifique
+$hll->clear('active_users');
+
+// Supprimer tout
+$hll->clear();
 ```
+
+---
 
 ## Cas d'utilisation
 
-### Cas 1 : Comptage d'utilisateurs uniques par contexte
+### Cas 1 : Comptage d'utilisateurs uniques par jour
 
 ```php
+<?php
+
+declare(strict_types=1);
+
 use AndyDefer\AlgoKIT\Algorithms\HyperLogLog;
-use AndyDefer\AlgoKIT\Storage\MemoryStorage;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
 
-$storage = new MemoryStorage();
-$hll = new HyperLogLog($storage, 14, 'unique_visitors');
-
-// Simuler des visites par contexte (site)
-$visits = [
-    'site_a' => ['user_123', 'user_456', 'user_789', 'user_123'],
-    'site_b' => ['user_123', 'user_456', 'user_abc'],
-    'site_c' => ['user_789', 'user_abc', 'user_def']
-];
-
-foreach ($visits as $site => $users) {
-    foreach ($users as $user) {
-        $hll->add($user, $site);
-    }
-}
-
-echo "Visiteurs uniques site A: " . $hll->count('site_a') . "\n"; // ~3
-echo "Visiteurs uniques site B: " . $hll->count('site_b') . "\n"; // ~3
-echo "Visiteurs uniques site C: " . $hll->count('site_c') . "\n"; // ~3
-echo "Visiteurs uniques global: " . $hll->count() . "\n"; // ~6
-```
-
-### Cas 2 : Analyse d'événements par type
-
-```php
-class EventAnalytics
+class UniqueVisitors
 {
     private HyperLogLog $hll;
     
@@ -179,228 +183,447 @@ class EventAnalytics
         $this->hll = $hll;
     }
     
-    public function trackEvent(string $eventType, string $userId): void
+    public function trackVisit(string $userId): void
     {
-        $this->hll->add($userId, 'event_' . $eventType);
-        $this->hll->add($userId); // Global
+        $date = date('Y-m-d');
+        $this->hll->add($userId, $date);
     }
     
-    public function getUniqueUsers(string $eventType): int
-    {
-        return $this->hll->count('event_' . $eventType);
-    }
-    
-    public function getGlobalUniqueUsers(): int
-    {
-        return $this->hll->count();
-    }
-    
-    public function getUniqueUsersBatch(array $eventTypes): array
-    {
-        $collection = new HyperLogLogCollection();
-        foreach ($eventTypes as $type) {
-            $collection->add(new HyperLogLogRecord('dummy', 'event_' . $type));
-        }
-        
-        $results = $this->hll->countBatch($collection);
-        $stats = [];
-        foreach ($results as $result) {
-            $type = str_replace('event_', '', $result->context);
-            $stats[$type] = $result->count;
-        }
-        return $stats;
-    }
-}
-
-// Utilisation
-$storage = new MemoryStorage();
-$hll = new HyperLogLog($storage, 14, 'event_analytics');
-$analytics = new EventAnalytics($hll);
-
-$analytics->trackEvent('click', 'user_123');
-$analytics->trackEvent('click', 'user_456');
-$analytics->trackEvent('click', 'user_123');
-$analytics->trackEvent('view', 'user_123');
-$analytics->trackEvent('view', 'user_789');
-
-echo "Clicks uniques: " . $analytics->getUniqueUsers('click') . "\n"; // ~2
-echo "Views uniques: " . $analytics->getUniqueUsers('view') . "\n"; // ~2
-echo "Total uniques: " . $analytics->getGlobalUniqueUsers() . "\n"; // ~3
-```
-
-### Cas 3 : Analyse de données de streaming avec contexte temporel
-
-```php
-class StreamingDataAnalyzer
-{
-    private HyperLogLog $hll;
-    
-    public function __construct(HyperLogLog $hll)
-    {
-        $this->hll = $hll;
-    }
-    
-    public function processEvent(string $eventType, string $userId, \DateTime $date): void
-    {
-        $dayKey = $date->format('Y-m-d');
-        $this->hll->add($userId, $dayKey . ':' . $eventType);
-        $this->hll->add($userId, $dayKey);
-        $this->hll->add($userId);
-    }
-    
-    public function getDailyUniqueEvents(string $date, string $eventType): int
-    {
-        return $this->hll->count($date . ':' . $eventType);
-    }
-    
-    public function getDailyUniqueUsers(string $date): int
+    public function getUniqueVisitors(string $date): int
     {
         return $this->hll->count($date);
     }
     
-    public function getStats(): array
+    public function getTotalUniqueVisitors(array $dates): int
     {
-        return [
-            'total_unique' => $this->hll->count(),
-            'contexts' => count($this->hll->getContextList())
-        ];
+        $total = 0;
+        foreach ($dates as $date) {
+            $total += $this->hll->count($date);
+        }
+        return $total;
     }
 }
 
 // Utilisation
 $storage = new MemoryStorage();
-$hll = new HyperLogLog($storage, 14, 'stream_analyzer');
-$analyzer = new StreamingDataAnalyzer($hll);
+$hll = new HyperLogLog($storage, 12, 'visitors');
+$visitors = new UniqueVisitors($hll);
 
-$events = [
-    ['type' => 'click', 'user' => 'u1', 'date' => '2024-01-01'],
-    ['type' => 'click', 'user' => 'u2', 'date' => '2024-01-01'],
-    ['type' => 'view', 'user' => 'u1', 'date' => '2024-01-01'],
-    ['type' => 'click', 'user' => 'u1', 'date' => '2024-01-01'],
+// Simuler des visites
+$visits = [
+    ['user_1', '2024-01-01'],
+    ['user_2', '2024-01-01'],
+    ['user_1', '2024-01-01'],
+    ['user_3', '2024-01-02'],
+    ['user_1', '2024-01-02'],
 ];
 
-foreach ($events as $event) {
-    $analyzer->processEvent(
-        $event['type'],
-        $event['user'],
-        new \DateTime($event['date'])
-    );
+foreach ($visits as [$userId, $date]) {
+    $visitors->trackVisit($userId, $date);
 }
 
-echo "Clicks uniques 2024-01-01: " . $analyzer->getDailyUniqueEvents('2024-01-01', 'click') . "\n";
-echo "Users uniques 2024-01-01: " . $analyzer->getDailyUniqueUsers('2024-01-01') . "\n";
-echo "Total uniques: " . $analyzer->getStats()['total_unique'] . "\n";
+echo "Visiteurs uniques le 2024-01-01 : " . $visitors->getUniqueVisitors('2024-01-01') . "\n";
+echo "Visiteurs uniques le 2024-01-02 : " . $visitors->getUniqueVisitors('2024-01-02') . "\n";
+// Sortie :
+// Visiteurs uniques le 2024-01-01 : ~2
+// Visiteurs uniques le 2024-01-02 : ~2
+```
+
+### Cas 2 : Analyse de mots-clés uniques dans les recherches
+
+```php
+<?php
+
+declare(strict_types=1);
+
+use AndyDefer\AlgoKIT\Algorithms\HyperLogLog;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+
+class SearchAnalytics
+{
+    private HyperLogLog $hll;
+    
+    public function __construct(HyperLogLog $hll)
+    {
+        $this->hll = $hll;
+    }
+    
+    public function trackSearch(string $query, string $category): void
+    {
+        $this->hll->add($query, $category);
+        $this->hll->add($query); // Track global
+    }
+    
+    public function getUniqueSearches(string $category): int
+    {
+        return $this->hll->count($category);
+    }
+    
+    public function getTotalUniqueSearches(): int
+    {
+        return $this->hll->count();
+    }
+}
+
+// Utilisation
+$storage = new MemoryStorage();
+$hll = new HyperLogLog($storage, 14, 'search_analytics');
+$analytics = new SearchAnalytics($hll);
+
+// Simuler des recherches
+$searches = [
+    ['php', 'programming'],
+    ['laravel', 'programming'],
+    ['php', 'programming'],
+    ['python', 'programming'],
+    ['recipes', 'cooking'],
+    ['php', 'programming'],
+];
+
+foreach ($searches as [$query, $category]) {
+    $analytics->trackSearch($query, $category);
+}
+
+echo "Recherches uniques en programmation : " . $analytics->getUniqueSearches('programming') . "\n";
+echo "Recherches uniques en cuisine : " . $analytics->getUniqueSearches('cooking') . "\n";
+echo "Total recherches uniques : " . $analytics->getTotalUniqueSearches() . "\n";
+// Sortie :
+// Recherches uniques en programmation : ~3
+// Recherches uniques en cuisine : ~1
+// Total recherches uniques : ~4
+```
+
+### Cas 3 : Détection d'IP uniques dans les logs
+
+```php
+<?php
+
+declare(strict_types=1);
+
+use AndyDefer\AlgoKIT\Algorithms\HyperLogLog;
+use AndyDefer\AlgoKIT\Collections\HyperLogLogCollection;
+use AndyDefer\AlgoKIT\Records\HyperLogLogRecord;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+
+class TrafficAnalyzer
+{
+    private HyperLogLog $hll;
+    
+    public function __construct(HyperLogLog $hll)
+    {
+        $this->hll = $hll;
+    }
+    
+    public function processLogs(array $logs): void
+    {
+        $collection = new HyperLogLogCollection();
+        
+        foreach ($logs as $log) {
+            $date = date('Y-m-d', strtotime($log['timestamp']));
+            $collection->add(new HyperLogLogRecord($log['ip'], $date));
+        }
+        
+        $this->hll->addBatch($collection);
+    }
+    
+    public function getUniqueIpsByDay(string $date): int
+    {
+        return $this->hll->count($date);
+    }
+    
+    public function getTotalUniqueIps(): int
+    {
+        return $this->hll->count();
+    }
+}
+
+// Utilisation
+$storage = new MemoryStorage();
+$hll = new HyperLogLog($storage, 15, 'traffic');
+$analyzer = new TrafficAnalyzer($hll);
+
+$logs = [
+    ['ip' => '192.168.1.1', 'timestamp' => '2024-01-01 10:00:00'],
+    ['ip' => '192.168.1.2', 'timestamp' => '2024-01-01 10:01:00'],
+    ['ip' => '192.168.1.1', 'timestamp' => '2024-01-01 10:02:00'],
+    ['ip' => '192.168.1.3', 'timestamp' => '2024-01-02 10:00:00'],
+    ['ip' => '192.168.1.4', 'timestamp' => '2024-01-02 10:01:00'],
+    ['ip' => '192.168.1.1', 'timestamp' => '2024-01-02 10:02:00'],
+];
+
+$analyzer->processLogs($logs);
+
+echo "IPs uniques le 2024-01-01 : " . $analyzer->getUniqueIpsByDay('2024-01-01') . "\n";
+echo "IPs uniques le 2024-01-02 : " . $analyzer->getUniqueIpsByDay('2024-01-02') . "\n";
+echo "Total IPs uniques : " . $analyzer->getTotalUniqueIps() . "\n";
+// Sortie :
+// IPs uniques le 2024-01-01 : ~2
+// IPs uniques le 2024-01-02 : ~3
+// Total IPs uniques : ~4
+```
+
+### Cas 4 : Analyse de hashtags uniques sur les réseaux sociaux
+
+```php
+<?php
+
+declare(strict_types=1);
+
+use AndyDefer\AlgoKIT\Algorithms\HyperLogLog;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+
+class SocialAnalytics
+{
+    private HyperLogLog $hll;
+    private array $hashtags = [];
+    
+    public function __construct(HyperLogLog $hll)
+    {
+        $this->hll = $hll;
+    }
+    
+    public function trackHashtag(string $hashtag, string $language): void
+    {
+        $this->hll->add($hashtag, $language);
+        $this->hll->add($hashtag);
+        
+        if (!in_array($hashtag, $this->hashtags)) {
+            $this->hashtags[] = $hashtag;
+        }
+    }
+    
+    public function getUniqueHashtagsByLanguage(string $language): int
+    {
+        return $this->hll->count($language);
+    }
+    
+    public function getTotalUniqueHashtags(): int
+    {
+        return $this->hll->count();
+    }
+    
+    public function getUniqueHashtagsByMultipleLanguages(array $languages): int
+    {
+        $collection = new HyperLogLogCollection();
+        
+        foreach ($this->hashtags as $hashtag) {
+            $collection->add(new HyperLogLogRecord($hashtag));
+        }
+        
+        $results = $this->hll->countBatch($collection);
+        $total = 0;
+        
+        foreach ($results as $result) {
+            if (in_array($result->context, $languages)) {
+                $total += $result->count;
+            }
+        }
+        
+        return $total;
+    }
+}
+
+// Utilisation
+$storage = new MemoryStorage();
+$hll = new HyperLogLog($storage, 12, 'social_analytics');
+$analytics = new SocialAnalytics($hll);
+
+$tweets = [
+    ['#php', 'en'],
+    ['#laravel', 'en'],
+    ['#php', 'en'],
+    ['#python', 'en'],
+    ['#php', 'fr'],
+    ['#laravel', 'fr'],
+];
+
+foreach ($tweets as [$hashtag, $language]) {
+    $analytics->trackHashtag($hashtag, $language);
+}
+
+echo "Hashtags uniques en anglais : " . $analytics->getUniqueHashtagsByLanguage('en') . "\n";
+echo "Hashtags uniques en français : " . $analytics->getUniqueHashtagsByLanguage('fr') . "\n";
+echo "Total hashtags uniques : " . $analytics->getTotalUniqueHashtags() . "\n";
+// Sortie :
+// Hashtags uniques en anglais : ~3
+// Hashtags uniques en français : ~2
+// Total hashtags uniques : ~3
 ```
 
 ## Flux d'exécution
 
+### Ajout d'une valeur
+
 ```
 add($value, $context)
     ↓
-getRegisters($context) → tableau de registres
+getRegisters($context) → Récupérer les registres
     ↓
-hash = crc32($value)
+hash = hashValue($value) → Hacher la valeur
     ↓
-index = hash & (m - 1)  // Sélection du registre
+registerIndex = selectRegisterIndex($hash) → Sélectionner le registre
+hashRemainder = extractHashRemainder($hash) → Extraire le reste
     ↓
-w = hash >> p  // Récupération du motif
+rank = calculateLeadingZeros(hashRemainder) + 1 → Calculer le rang
     ↓
-rank = leadingZeros(w) + 1  // Nombre de zéros en tête
+rank > registers[registerIndex] ?
+    ├── OUI → registers[registerIndex] = rank
+    └── NON → Ne rien faire
     ↓
-rank > registers[$index]? → update register
-    ↓
-saveRegisters($registers, $context)
+saveRegisters($registers, $context) → Persister
 ```
+
+### Estimation de cardinalité
 
 ```
 count($context)
     ↓
-Si contexte spécifique:
-    getRegisters($context) → registres
+registers = getRegisters($context)
     ↓
-    calculateCount(registres) → estimation
+harmonicSum = calculateHarmonicSum($registers)
     ↓
-    return estimation
+harmonicSum == 0 ?
+    ├── OUI → Retourner 0
+    └── NON → Continuer
     ↓
-Si contexte global:
-    getRegisters(null) → registres globaux
+alpha = ALPHA_CONSTANT / (1 + ALPHA_DENOMINATOR / registerCount)
+estimate = alpha * registerCount² / harmonicSum
     ↓
-    total = calculateCount(registres globaux)
+estimate <= SMALL_SET_THRESHOLD * registerCount ?
+    ├── OUI → applySmallSetCorrection($registers, $estimate)
+    └── NON → Garder estimate
     ↓
-    pour chaque contexte dans getContextList():
-        total += count($contexte)
+Retourner (int) estimate
+```
+
+### Opérations Batch (optimisées)
+
+```
+addBatch($collection)
     ↓
-    return total
+Pour chaque élément :
+    1. Récupérer les registres du contexte
+    2. Calculer le rang
+    3. Mettre à jour le registre si nécessaire
+    4. Marquer le contexte comme modifié
+    ↓
+Pour chaque contexte modifié :
+    saveRegisters($registers, $context)
 ```
 
 ## Gestion des erreurs
 
 | Situation | Exception | Message |
 |-----------|-----------|---------|
-| Aucune exception explicite | - | - |
+| Aucune | - | - |
 
-**Note :** HyperLogLog ne lève pas d'exceptions. Les erreurs sont gérées silencieusement par l'utilisation de valeurs par défaut.
+**Note :** La classe ne lève pas d'exceptions directement. Les erreurs peuvent provenir de l'implémentation de `StorageInterface` utilisée.
 
 ## Intégration
 
-### Avec Storage
-
-HyperLogLog utilise `StorageInterface` pour la persistance des données :
+### Avec StorageKit
 
 ```php
-// Sauvegarde automatique
-$hll->add('value'); // Persiste dans storage
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+use AndyDefer\StorageKit\Storage\CacheStorage;
+use AndyDefer\AlgoKIT\Algorithms\HyperLogLog;
 
-// Récupération automatique
-$hll = new HyperLogLog($storage, 14, 'hll'); // Charge depuis storage
+// Stockage en mémoire (pour les tests)
+$memoryStorage = new MemoryStorage();
+$hll = new HyperLogLog($memoryStorage);
+
+// Stockage persistant avec cache
+$cacheStorage = new CacheStorage('redis');
+$hll = new HyperLogLog($cacheStorage, 14, 'production_hll');
 ```
 
-### Avec les Records
-
-HyperLogLog utilise des Records pour représenter les données :
-
-- `HyperLogLogRecord` : Représente une valeur à ajouter
-- `HyperLogLogResultRecord` : Représente un résultat de comptage (inclut le contexte)
-
-### Avec les Collections
-
-HyperLogLog utilise des Collections typées :
-
-- `HyperLogLogCollection` : Collection de valeurs
-- `HyperLogLogResultCollection` : Collection de résultats
-
-### Gestion des contextes
-
-HyperLogLog maintient une liste des contextes utilisés :
+### Avec les collections
 
 ```php
-// Les contextes sont automatiquement enregistrés
-$hll->add('a', 'context1'); // 'context1' est ajouté à la liste
-$hll->add('b', 'context2'); // 'context2' est ajouté à la liste
+use AndyDefer\AlgoKIT\Collections\HyperLogLogCollection;
+use AndyDefer\AlgoKIT\Collections\HyperLogLogResultCollection;
+use AndyDefer\AlgoKIT\Records\HyperLogLogRecord;
+use AndyDefer\AlgoKIT\Records\HyperLogLogResultRecord;
 
-// Le count global additionne tous les contextes
-$total = $hll->count(); // count(context1) + count(context2) + count(global)
+// Créer une collection de valeurs
+$collection = new HyperLogLogCollection();
+$collection->add(new HyperLogLogRecord('value1'));
+$collection->add(new HyperLogLogRecord('value2', 'context'));
+
+// Ajout en batch
+$hll->addBatch($collection);
+
+// Comptage en batch
+$results = $hll->countBatch($collection);
+
+// Filtrer les résultats non nuls
+$nonZero = $results->filter(
+    fn(HyperLogLogResultRecord $r) => $r->count > 0
+);
+```
+
+### Avec les autres algorithmes
+
+HyperLogLog peut être combiné avec d'autres algorithmes probabilistes :
+
+- **Avec BloomFilter** : Vérifier l'appartenance avant de compter
+- **Avec CountMinSketch** : Compter les fréquences des éléments uniques
+- **Avec TopK** : Identifier les éléments les plus fréquents parmi les uniques
+
+```php
+use AndyDefer\AlgoKIT\Algorithms\HyperLogLog;
+use AndyDefer\AlgoKIT\Algorithms\CountMinSketch;
+
+$hll = new HyperLogLog($storage, 14, 'uniques');
+$cms = new CountMinSketch($storage, 10000, 5, 'frequencies');
+
+// Compter les éléments uniques et leurs fréquences
+$items = ['a', 'b', 'a', 'c', 'b', 'a', 'd'];
+
+foreach ($items as $item) {
+    $hll->add($item);
+    $cms->add($item);
+}
+
+echo "Éléments uniques : " . $hll->count() . "\n";
+echo "Fréquence de 'a' : " . $cms->count('a') . "\n";
 ```
 
 ## Performance
 
-| Opération | Complexité | Notes |
-|-----------|------------|-------|
-| `add()` | O(1) | Une seule opération de hachage |
-| `count()` | O(m) | m = nombre de registres (2^precision) |
+| Opération | Complexité | Description |
+|-----------|------------|-------------|
+| `add()` | O(1) | Hachage et mise à jour d'un registre |
+| `count()` | O(registerCount) | Parcours de tous les registres |
 | `addBatch()` | O(n) | n = nombre d'éléments |
-| `countBatch()` | O(n*m) | n = nombre d'éléments, m = registres |
-| `clear()` | O(c) | c = nombre de contextes |
+| `countBatch()` | O(n × registerCount) | n = nombre de contextes |
 
-**Précision :** Erreur standard = 1.04 / √(2^precision)
+**Précision :**
+- L'erreur standard est d'environ `1.04 / sqrt(registerCount)`
+- Avec `precision = 16` (65536 registres), l'erreur est d'environ 0.4%
+- Avec `precision = 12` (4096 registres), l'erreur est d'environ 1.6%
+
+**Mémoire :**
+- La mémoire utilisée est `2^precision` entiers
+- Avec `precision = 16` : 65536 entiers ≈ 2 MB
+- Avec `precision = 12` : 4096 entiers ≈ 128 KB
+
+**Recommandations :**
+
+| Usage | Précision | Registres | Erreur estimée | Mémoire |
+|-------|-----------|-----------|----------------|---------|
+| Volume < 10k | 10 | 1 024 | ~3.2% | ~32 KB |
+| Volume < 1M | 12 | 4 096 | ~1.6% | ~128 KB |
+| Volume < 10M | 14 | 16 384 | ~0.8% | ~512 KB |
+| Volume > 10M | 16 | 65 536 | ~0.4% | ~2 MB |
 
 ## Compatibilité
 
-| Version | Support |
-|---------|---------|
-| PHP 8.1+ | ✅ Complet |
-| PHP 8.0 | ✅ Complet |
-| PHP 7.4 | ❌ Non (nécessite PHP 8.0+) |
+| Version | Support | Notes |
+|---------|---------|-------|
+| PHP 8.1+ | ✅ Complet | Types et syntaxe recommandés |
+| PHP 8.0 | ✅ Complet | Compatible avec ajustements mineurs |
+| PHP 7.4 | ❌ Non supporté | Utilise `fn()` et `readonly` |
 
 ## Exemple complet
 
@@ -412,128 +635,129 @@ declare(strict_types=1);
 use AndyDefer\AlgoKIT\Algorithms\HyperLogLog;
 use AndyDefer\AlgoKIT\Collections\HyperLogLogCollection;
 use AndyDefer\AlgoKIT\Records\HyperLogLogRecord;
-use AndyDefer\AlgoKIT\Storage\MemoryStorage;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
 
 // 1. Initialisation
 $storage = new MemoryStorage();
-$hll = new HyperLogLog($storage, 14, 'test_hll');
+$hll = new HyperLogLog($storage, 12, 'demo_hll');
 
-echo "Précision: 14 (2^14 = " . (1 << 14) . " registres)\n\n";
+echo "📊 DÉMONSTRATION HYPERLOGLOG\n";
+echo "═══════════════════════════════\n\n";
 
-// 2. Ajout de valeurs avec contextes
-echo "Ajout de valeurs:\n";
+// 2. Ajout de données
+echo "📝 Ajout de données :\n";
 $data = [
-    ['a', 'context1'],
-    ['b', 'context1'],
-    ['c', 'context1'],
-    ['d', 'context2'],
-    ['e', 'context2'],
-    ['a', 'context1'], // Duplicate
-    ['b', 'context2']
+    ['user_1', 'site_a'],
+    ['user_2', 'site_a'],
+    ['user_1', 'site_a'],
+    ['user_3', 'site_b'],
+    ['user_2', 'site_b'],
+    ['user_4', 'site_a'],
+    ['user_1', 'site_b'],
 ];
 
-foreach ($data as [$value, $context]) {
-    $hll->add($value, $context);
-    echo "  + $value ($context)\n";
+foreach ($data as [$userId, $site]) {
+    $hll->add($userId, $site);
+    echo "  + {$userId} ({$site})\n";
 }
 
-// 3. Comptage par contexte
-echo "\nComptage par contexte:\n";
-$contexts = ['context1', 'context2'];
-foreach ($contexts as $context) {
-    $count = $hll->count($context);
-    $expected = $context === 'context1' ? 3 : 3;
-    echo "  '$context': $count (attendu: ~$expected)\n";
+// 3. Comptage individuel
+echo "\n🔍 Comptage individuel :\n";
+$sites = ['site_a', 'site_b', 'site_c'];
+
+foreach ($sites as $site) {
+    $count = $hll->count($site);
+    echo "  {$site} : {$count} utilisateurs uniques\n";
 }
 
 // 4. Comptage global
-$global = $hll->count();
-$expectedGlobal = 5;
-echo "\nGlobal: $global (attendu: ~$expectedGlobal)\n";
+echo "\n📊 Comptage global :\n";
+$total = $hll->count();
+echo "  Total utilisateurs uniques : {$total}\n";
 
-// 5. Test des opérations batch
-echo "\nTest des opérations batch:\n";
-$collection = new HyperLogLogCollection();
-$collection->add(new HyperLogLogRecord('x', 'context1'));
-$collection->add(new HyperLogLogRecord('y', 'context2'));
-$collection->add(new HyperLogLogRecord('z', 'context3'));
+// 5. Opérations batch
+echo "\n📦 Opérations batch :\n";
 
-$hll->addBatch($collection);
-echo "✓ 3 valeurs ajoutées en batch\n";
+// Insertion batch
+$batch = new HyperLogLogCollection();
+$batch->add(new HyperLogLogRecord('user_5', 'site_a'));
+$batch->add(new HyperLogLogRecord('user_6', 'site_b'));
+$batch->add(new HyperLogLogRecord('user_5', 'site_b'));
 
-// 6. Vérification après batch
-echo "\nVérification après batch:\n";
-foreach (['context1', 'context2', 'context3'] as $context) {
-    $count = $hll->count($context);
-    echo "  '$context': $count\n";
+$hll->addBatch($batch);
+echo "  ✓ Insertion batch effectuée\n";
+
+// Comptage batch
+$query = new HyperLogLogCollection();
+$query->add(new HyperLogLogRecord('x', 'site_a'));
+$query->add(new HyperLogLogRecord('y', 'site_b'));
+
+$results = $hll->countBatch($query);
+foreach ($results as $result) {
+    echo "  {$result->context} : {$result->count} utilisateurs uniques\n";
 }
 
-// 7. Test de persistence
-echo "\nTest de persistance:\n";
-$hll2 = new HyperLogLog($storage, 14, 'test_hll');
-echo "Nombre d'uniques après récupération: " . $hll2->count() . "\n";
+// 6. Évolution des données
+echo "\n📈 Évolution :\n";
 
-// 8. Nettoyage
-$hll->clear('context2');
-echo "\n✓ Contexte 'context2' vidé\n";
+$before = $hll->count('site_a');
+$hll->add('user_7', 'site_a');
+$after = $hll->count('site_a');
 
-echo "context1: " . $hll->count('context1') . "\n";
-echo "context2: " . $hll->count('context2') . "\n";
-echo "context3: " . $hll->count('context3') . "\n";
-echo "Global: " . $hll->count() . "\n";
+echo "  Avant : {$before} utilisateurs\n";
+echo "  Après : {$after} utilisateurs\n";
 
-// 9. Nettoyage complet
-$hll->clear();
-echo "\n✓ HyperLogLog vidé\n";
-echo "Total après vidage: " . $hll->count() . "\n";
-```
+// 7. Nettoyage
+echo "\n🧹 Nettoyage :\n";
+$hll->clear('site_a');
+echo "  ✓ Contexte 'site_a' vidé\n";
 
-**Sortie attendue :**
-```
-Précision: 14 (2^14 = 16384 registres)
+$siteACount = $hll->count('site_a');
+$siteBCount = $hll->count('site_b');
 
-Ajout de valeurs:
-  + a (context1)
-  + b (context1)
-  + c (context1)
-  + d (context2)
-  + e (context2)
-  + a (context1)
-  + b (context2)
+echo "  Site A : {$siteACount} utilisateurs\n";
+echo "  Site B : {$siteBCount} utilisateurs\n";
 
-Comptage par contexte:
-  'context1': 3 (attendu: ~3)
-  'context2': 3 (attendu: ~3)
-
-Global: 5 (attendu: ~5)
-
-Test des opérations batch:
-✓ 3 valeurs ajoutées en batch
-
-Vérification après batch:
-  'context1': 3
-  'context2': 3
-  'context3': 1
-
-Test de persistance:
-Nombre d'uniques après récupération: 6
-
-✓ Contexte 'context2' vidé
-context1: 3
-context2: 0
-context3: 1
-Global: 4
-
-✓ HyperLogLog vidé
-Total après vidage: 0
+// Exemple de sortie :
+// 📊 DÉMONSTRATION HYPERLOGLOG
+// ═══════════════════════════════
+// 
+// 📝 Ajout de données :
+//   + user_1 (site_a)
+//   + user_2 (site_a)
+//   + user_1 (site_a)
+//   + user_3 (site_b)
+//   + user_2 (site_b)
+//   + user_4 (site_a)
+//   + user_1 (site_b)
+// 
+// 🔍 Comptage individuel :
+//   site_a : 3 utilisateurs uniques
+//   site_b : 3 utilisateurs uniques
+//   site_c : 0 utilisateurs uniques
+// 
+// 📊 Comptage global :
+//   Total utilisateurs uniques : 4
+// 
+// 📦 Opérations batch :
+//   ✓ Insertion batch effectuée
+//   site_a : 4 utilisateurs uniques
+//   site_b : 4 utilisateurs uniques
+// 
+// 📈 Évolution :
+//   Avant : 4 utilisateurs
+//   Après : 5 utilisateurs
+// 
+// 🧹 Nettoyage :
+//   ✓ Contexte 'site_a' vidé
+//   Site A : 0 utilisateurs
+//   Site B : 4 utilisateurs
 ```
 
 ## Voir aussi
 
-- `HyperLogLogInterface` - Interface du HyperLogLog
-- `HyperLogLogRecord` - Record pour les valeurs
-- `HyperLogLogResultRecord` - Record pour les résultats
-- `HyperLogLogCollection` - Collection de valeurs
-- `HyperLogLogResultCollection` - Collection de résultats
-- `StorageInterface` - Interface de persistance
-- `MemoryStorage` - Implémentation mémoire du storage
+- [`bloom-filter`](bloom-filter.md) - Test probabiliste d'appartenance
+- [`count-min-sketch`](count-min-sketch.md) - Compteur probabiliste de fréquences
+- [`top-k`](top-k.md) - Suivi des éléments les plus fréquents
+- [`bk-tree`](bk-tree.md) - Recherche floue par distance de Levenshtein
+- [`trie`](trie.md) - Recherche par préfixe

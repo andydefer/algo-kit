@@ -2,26 +2,42 @@
 
 ## Description
 
-TopK est une structure de données qui maintient en mémoire les K éléments les plus fréquents d'un flux de données. Elle permet de suivre en temps réel les tendances et les éléments les plus populaires avec une utilisation mémoire minimale.
+TopK est une structure de données qui maintient les **K éléments les plus fréquents** dans un flux de données en utilisant un algorithme économe en mémoire. Elle suit en temps réel les éléments qui apparaissent le plus souvent, idéale pour l'analyse de tendances et les classements dynamiques.
 
 ## Hiérarchie / Implémentations
 
 ```
 TopKInterface
-    └── TopK
+    └── TopK (final)
 ```
 
-**Interfaces implémentées :** `TopKInterface`
+La classe implémente l'interface `TopKInterface` et utilise :
+- `StorageInterface` pour la persistance des données
+- `TopKCollection` pour les opérations batch
+- `TopKResultCollection` pour retourner les résultats
+- `TopKRecord` pour représenter une valeur à ajouter avec incrément
+- `TopKResultRecord` pour représenter un élément du top avec son compteur
 
 ## Rôle principal
 
-TopK maintient une liste des K éléments les plus fréquents en utilisant un algorithme efficace qui ne conserve que les éléments pertinents. Particulièrement adapté pour les systèmes de recommandation, l'analyse de tendances, et le suivi des éléments populaires dans des flux massifs de données.
+TopK répond à la question **"Quels sont les K éléments les plus fréquents dans ce flux ?"** en utilisant une mémoire constante indépendante du nombre d'éléments. Lorsqu'un nouvel élément est ajouté et que la liste des K éléments est pleine, l'élément le moins fréquent est remplacé si le nouvel élément a une fréquence supérieure.
+
+**Propriétés fondamentales :**
+- ✅ **Mémoire constante** : Ne stocke que K éléments, quel que soit le volume de données
+- ✅ **Temps constant** : Les opérations sont en O(K) pour la recherche du minimum
+- ✅ **Suivi continu** : Idéal pour les flux de données en temps réel
+- ✅ **Persistance** : Peut être sauvegardé et restauré
+- ⚠️ **Approximatif** : Peut manquer des éléments si K est trop petit
 
 ## Installation
 
 ```bash
-composer require andydefer/algokit
+composer require andydefer/algo-kit
 ```
+
+Prérequis :
+- PHP 8.1 ou supérieur
+- Extension `storage-kit` installée
 
 ## API / Méthodes publiques
 
@@ -29,50 +45,51 @@ composer require andydefer/algokit
 
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$storage` | `StorageInterface` | Instance du système de stockage |
-| `$k` | `int` | Nombre d'éléments à conserver (défaut: 10) |
-| `$key` | `string` | Clé d'identification dans le storage (défaut: 'topk') |
+| `$storage` | `StorageInterface` | Backend de stockage pour la persistance |
+| `$k` | `int` | Nombre d'éléments les plus fréquents à suivre |
+| `$key` | `string` | Clé unique identifiant l'instance (défaut : 'topk') |
 
 **Retourne :** `void`
 
 **Exemple :**
 ```php
 $storage = new MemoryStorage();
-$topK = new TopK($storage, 5, 'top_searches');
+$topK = new TopK($storage, 5, 'trending_words');
 ```
 
 ---
 
 ### `add(string $value, int $increment = 1): void`
 
-Ajoute une occurrence d'une valeur.
+Ajoute une valeur avec un incrément optionnel.
 
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$value` | `string` | Valeur à ajouter |
-| `$increment` | `int` | Incrément du compteur (défaut: 1) |
+| `$value` | `string` | La valeur à ajouter |
+| `$increment` | `int` | Montant de l'incrémentation (défaut : 1) |
 
 **Retourne :** `void`
 
 **Exemple :**
 ```php
 $topK->add('php');
-$topK->add('laravel', 3); // Incrémente de 3
+$topK->add('php', 5); // Incrémente de 5
+$topK->add('laravel');
 ```
 
 ---
 
 ### `getTop(): TopKResultCollection`
 
-Récupère les K éléments les plus fréquents.
+Retourne les K éléments les plus fréquents.
 
-**Retourne :** `TopKResultCollection` - Collection des éléments triés par ordre décroissant de fréquence
+**Retourne :** `TopKResultCollection` - Collection des éléments avec leurs compteurs
 
 **Exemple :**
 ```php
-$top = $topK->getTop();
-foreach ($top as $item) {
-    echo "{$item->value}: {$item->count}\n";
+$results = $topK->getTop();
+foreach ($results as $result) {
+    echo "{$result->value}: {$result->count}\n";
 }
 ```
 
@@ -84,7 +101,7 @@ Ajoute plusieurs valeurs en lot.
 
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$collection` | `TopKCollection` | Collection de valeurs à ajouter |
+| `$collection` | `TopKCollection` | Collection de valeurs à ajouter avec leurs incréments |
 
 **Retourne :** `void`
 
@@ -100,161 +117,99 @@ $topK->addBatch($collection);
 
 ### `clear(): void`
 
-Vide complètement la structure.
+Supprime toutes les données du tracker TopK.
 
 **Retourne :** `void`
 
 **Exemple :**
 ```php
-$topK->clear();
+$topK->clear(); // Réinitialise complètement
 ```
+
+---
 
 ## Cas d'utilisation
 
-### Cas 1 : Top des termes de recherche
+### Cas 1 : Tendances des mots-clés dans les recherches
 
 ```php
-use AndyDefer\AlgoKIT\Algorithms\TopK;
-use AndyDefer\AlgoKIT\Storage\MemoryStorage;
+<?php
 
+declare(strict_types=1);
+
+use AndyDefer\AlgoKIT\Algorithms\TopK;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+
+class TrendingSearch
+{
+    private TopK $topK;
+    
+    public function __construct(TopK $topK)
+    {
+        $this->topK = $topK;
+    }
+    
+    public function trackSearch(string $query): void
+    {
+        $this->topK->add($query);
+    }
+    
+    public function getTopSearches(int $limit = 5): array
+    {
+        $results = [];
+        foreach ($this->topK->getTop() as $result) {
+            if (count($results) >= $limit) break;
+            $results[] = [
+                'query' => $result->value,
+                'count' => $result->count
+            ];
+        }
+        return $results;
+    }
+}
+
+// Utilisation
 $storage = new MemoryStorage();
-$topK = new TopK($storage, 5, 'search_trends');
+$topK = new TopK($storage, 10, 'trending_search');
+$trending = new TrendingSearch($topK);
 
 // Simuler des recherches
 $searches = [
-    'php', 'laravel', 'php', 'javascript', 'php',
-    'laravel', 'python', 'php', 'javascript', 'laravel',
-    'php', 'go', 'rust', 'php', 'laravel'
+    'php', 'laravel', 'php', 'python', 'php', 
+    'javascript', 'python', 'php', 'laravel', 
+    'golang', 'php', 'python', 'ruby'
 ];
 
-foreach ($searches as $term) {
-    $topK->add($term);
+foreach ($searches as $query) {
+    $trending->trackSearch($query);
 }
 
-$top = $topK->getTop();
-echo "Top 5 des termes les plus recherchés:\n";
-foreach ($top as $index => $item) {
-    echo sprintf("#%d: %s (%d recherches)\n", $index + 1, $item->value, $item->count);
+echo "🏆 Tendances des recherches :\n";
+foreach ($trending->getTopSearches(5) as $rank => $item) {
+    echo "  #" . ($rank + 1) . " {$item['query']} ({$item['count']} fois)\n";
 }
+// Sortie :
+// 🏆 Tendances des recherches :
+//   #1 php (5 fois)
+//   #2 python (3 fois)
+//   #3 laravel (2 fois)
+//   #4 javascript (1 fois)
+//   #5 golang (1 fois)
 ```
 
-### Cas 2 : Système de recommandation
+### Cas 2 : Produits les plus consultés dans un e-commerce
 
 ```php
+<?php
+
+declare(strict_types=1);
+
 use AndyDefer\AlgoKIT\Algorithms\TopK;
-use AndyDefer\AlgoKIT\Storage\MemoryStorage;
+use AndyDefer\AlgoKIT\Collections\TopKCollection;
+use AndyDefer\AlgoKIT\Records\TopKRecord;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
 
-class RecommendationEngine
-{
-    private TopK $topK;
-    private array $productCatalog = [];
-    
-    public function __construct(TopK $topK)
-    {
-        $this->topK = $topK;
-    }
-    
-    public function addProduct(string $id, string $name, array $tags): void
-    {
-        $this->productCatalog[$id] = [
-            'name' => $name,
-            'tags' => $tags
-        ];
-    }
-    
-    public function trackView(string $userId, string $productId): void
-    {
-        $key = "{$userId}:{$productId}";
-        $this->topK->add($key);
-    }
-    
-    public function getTopProducts(int $limit = 10): array
-    {
-        $top = $this->topK->getTop();
-        $result = [];
-        
-        foreach ($top as $item) {
-            $parts = explode(':', $item->value);
-            if (count($parts) === 2) {
-                $userId = $parts[0];
-                $productId = $parts[1];
-                
-                if (isset($this->productCatalog[$productId])) {
-                    $result[] = [
-                        'user_id' => $userId,
-                        'product_id' => $productId,
-                        'product_name' => $this->productCatalog[$productId]['name'],
-                        'views' => $item->count
-                    ];
-                }
-            }
-            
-            if (count($result) >= $limit) {
-                break;
-            }
-        }
-        
-        return $result;
-    }
-    
-    public function getUserPreferences(string $userId, int $limit = 5): array
-    {
-        $top = $this->topK->getTop();
-        $preferences = [];
-        
-        foreach ($top as $item) {
-            if (str_starts_with($item->value, $userId . ':')) {
-                $productId = explode(':', $item->value)[1];
-                if (isset($this->productCatalog[$productId])) {
-                    $preferences[] = [
-                        'product_id' => $productId,
-                        'product_name' => $this->productCatalog[$productId]['name'],
-                        'views' => $item->count
-                    ];
-                }
-                
-                if (count($preferences) >= $limit) {
-                    break;
-                }
-            }
-        }
-        
-        return $preferences;
-    }
-}
-
-// Utilisation
-$storage = new MemoryStorage();
-$topK = new TopK($storage, 20, 'recommendations');
-$engine = new RecommendationEngine($topK);
-
-// Ajout de produits
-$engine->addProduct('p1', 'Laptop', ['electronics', 'computer']);
-$engine->addProduct('p2', 'Smartphone', ['electronics', 'mobile']);
-$engine->addProduct('p3', 'Headphones', ['electronics', 'audio']);
-
-// Tracking des vues
-$engine->trackView('user_123', 'p1');
-$engine->trackView('user_123', 'p1');
-$engine->trackView('user_123', 'p2');
-$engine->trackView('user_456', 'p1');
-$engine->trackView('user_123', 'p3');
-
-// Récupération des préférences
-$preferences = $engine->getUserPreferences('user_123');
-echo "Préférences de l'utilisateur:\n";
-print_r($preferences);
-
-// Récupération des produits populaires
-$popular = $engine->getTopProducts(3);
-echo "\nProduits les plus populaires:\n";
-print_r($popular);
-```
-
-### Cas 3 : Analyse de logs en temps réel
-
-```php
-class LogAnalyzer
+class ProductViews
 {
     private TopK $topK;
     
@@ -263,203 +218,395 @@ class LogAnalyzer
         $this->topK = $topK;
     }
     
-    public function processLog(array $log): void
+    public function viewProduct(string $productId): void
     {
-        $ip = $log['ip'] ?? 'unknown';
-        $endpoint = $log['endpoint'] ?? '/';
-        $status = $log['status'] ?? 200;
-        
-        // Incrémenter différents compteurs
-        $this->topK->add("ip:{$ip}");
-        $this->topK->add("endpoint:{$endpoint}");
-        $this->topK->add("status:{$status}");
+        $this->topK->add($productId);
     }
     
-    public function getTopIPs(int $limit = 5): array
+    public function viewProductsBatch(array $productIds): void
     {
-        $top = $this->topK->getTop();
-        $result = [];
-        
-        foreach ($top as $item) {
-            if (str_starts_with($item->value, 'ip:')) {
-                $ip = substr($item->value, 3);
-                $result[] = ['ip' => $ip, 'count' => $item->count];
-            }
-            
-            if (count($result) >= $limit) {
-                break;
-            }
+        $collection = new TopKCollection();
+        foreach ($productIds as $productId) {
+            $collection->add(new TopKRecord($productId, 1));
         }
-        
-        return $result;
+        $this->topK->addBatch($collection);
     }
     
-    public function getTopEndpoints(int $limit = 5): array
+    public function getTopProducts(int $limit = 5): array
     {
-        $top = $this->topK->getTop();
-        $result = [];
-        
-        foreach ($top as $item) {
-            if (str_starts_with($item->value, 'endpoint:')) {
-                $endpoint = substr($item->value, 9);
-                $result[] = ['endpoint' => $endpoint, 'count' => $item->count];
-            }
-            
-            if (count($result) >= $limit) {
-                break;
-            }
+        $top = [];
+        foreach ($this->topK->getTop() as $result) {
+            if (count($top) >= $limit) break;
+            $top[] = [
+                'product_id' => $result->value,
+                'views' => $result->count
+            ];
         }
-        
-        return $result;
-    }
-    
-    public function getStats(): array
-    {
-        return [
-            'total_items' => $this->topK->getTop()->count(),
-            'top_ips' => $this->getTopIPs(3),
-            'top_endpoints' => $this->getTopEndpoints(3)
-        ];
+        return $top;
     }
 }
 
 // Utilisation
 $storage = new MemoryStorage();
-$topK = new TopK($storage, 30, 'log_analyzer');
-$analyzer = new LogAnalyzer($topK);
+$topK = new TopK($storage, 20, 'product_views');
+$productTracker = new ProductViews($topK);
 
-$logs = [
-    ['ip' => '192.168.1.1', 'endpoint' => '/api/users', 'status' => 200],
-    ['ip' => '192.168.1.2', 'endpoint' => '/api/products', 'status' => 200],
-    ['ip' => '192.168.1.1', 'endpoint' => '/api/users', 'status' => 200],
-    ['ip' => '192.168.1.3', 'endpoint' => '/api/orders', 'status' => 404],
-    ['ip' => '192.168.1.1', 'endpoint' => '/api/users', 'status' => 200],
-    ['ip' => '192.168.1.2', 'endpoint' => '/api/products', 'status' => 200],
+// Simuler des vues de produits
+$views = [
+    'p1', 'p2', 'p1', 'p3', 'p1', 'p4', 'p2', 'p1', 'p5', 'p3',
+    'p1', 'p2', 'p1', 'p3', 'p1', 'p6', 'p2', 'p1', 'p7', 'p3'
 ];
 
-foreach ($logs as $log) {
-    $analyzer->processLog($log);
+// Ajout en batch
+$productTracker->viewProductsBatch($views);
+
+echo "🛍️ Produits les plus consultés :\n";
+foreach ($productTracker->getTopProducts(5) as $rank => $product) {
+    $stars = str_repeat('⭐', min(5, ceil($product['views'] / 2)));
+    echo "  #" . ($rank + 1) . " Produit {$product['product_id']} : {$product['views']} vues $stars\n";
+}
+// Sortie :
+// 🛍️ Produits les plus consultés :
+//   #1 Produit p1 : 7 vues ⭐⭐⭐⭐
+//   #2 Produit p2 : 4 vues ⭐⭐
+//   #3 Produit p3 : 4 vues ⭐⭐
+//   #4 Produit p4 : 1 vue ⭐
+//   #5 Produit p5 : 1 vue ⭐
+```
+
+### Cas 3 : Analyse de logs d'erreurs
+
+```php
+<?php
+
+declare(strict_types=1);
+
+use AndyDefer\AlgoKIT\Algorithms\TopK;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+
+class ErrorAnalyzer
+{
+    private TopK $topK;
+    
+    public function __construct(TopK $topK)
+    {
+        $this->topK = $topK;
+    }
+    
+    public function logError(string $errorType, string $message): void
+    {
+        $this->topK->add($errorType);
+        // On peut aussi tracker les messages d'erreur complets
+        $this->topK->add("{$errorType}: {$message}");
+    }
+    
+    public function getTopErrors(int $limit = 5): array
+    {
+        $errors = [];
+        foreach ($this->topK->getTop() as $result) {
+            if (count($errors) >= $limit) break;
+            $errors[] = [
+                'error' => $result->value,
+                'count' => $result->count
+            ];
+        }
+        return $errors;
+    }
 }
 
-echo "Statistiques:\n";
-print_r($analyzer->getStats());
+// Utilisation
+$storage = new MemoryStorage();
+$topK = new TopK($storage, 15, 'error_analysis');
+$analyzer = new ErrorAnalyzer($topK);
+
+// Simuler des erreurs
+$errors = [
+    ['404', 'Page not found'],
+    ['500', 'Internal Server Error'],
+    ['404', 'Page not found'],
+    ['403', 'Forbidden'],
+    ['404', 'Page not found'],
+    ['500', 'Internal Server Error'],
+    ['429', 'Too Many Requests'],
+    ['404', 'Page not found'],
+    ['403', 'Forbidden'],
+    ['404', 'Page not found'],
+];
+
+foreach ($errors as [$type, $message]) {
+    $analyzer->logError($type, $message);
+}
+
+echo "🐞 Top erreurs :\n";
+foreach ($analyzer->getTopErrors(3) as $rank => $error) {
+    $icon = ['🔴', '🟡', '🟠'][$rank] ?? '📊';
+    echo "  $icon {$error['error']} : {$error['count']} occurrences\n";
+}
+// Sortie :
+// 🐞 Top erreurs :
+//   🔴 404 : 5 occurrences
+//   🟡 500 : 2 occurrences
+//   🟠 403 : 2 occurrences
+```
+
+### Cas 4 : Suivi des artistes les plus écoutés
+
+```php
+<?php
+
+declare(strict_types=1);
+
+use AndyDefer\AlgoKIT\Algorithms\TopK;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+
+class MusicAnalytics
+{
+    private TopK $topK;
+    private int $listens = 0;
+    
+    public function __construct(TopK $topK)
+    {
+        $this->topK = $topK;
+    }
+    
+    public function playSong(string $artist, string $song): void
+    {
+        $this->topK->add($artist);
+        $this->topK->add("{$artist} - {$song}");
+        $this->listens++;
+    }
+    
+    public function getTopArtists(int $limit = 3): array
+    {
+        $artists = [];
+        foreach ($this->topK->getTop() as $result) {
+            if (count($artists) >= $limit) break;
+            // Filtrer pour ne garder que les artistes (pas les titres)
+            if (strpos($result->value, ' - ') === false) {
+                $artists[] = [
+                    'name' => $result->value,
+                    'plays' => $result->count,
+                    'percentage' => round(($result->count / $this->listens) * 100, 1)
+                ];
+            }
+        }
+        return $artists;
+    }
+    
+    public function getTopSongs(int $limit = 3): array
+    {
+        $songs = [];
+        foreach ($this->topK->getTop() as $result) {
+            if (count($songs) >= $limit) break;
+            if (strpos($result->value, ' - ') !== false) {
+                $songs[] = [
+                    'title' => $result->value,
+                    'plays' => $result->count
+                ];
+            }
+        }
+        return $songs;
+    }
+}
+
+// Utilisation
+$storage = new MemoryStorage();
+$topK = new TopK($storage, 20, 'music_analytics');
+$music = new MusicAnalytics($topK);
+
+$plays = [
+    ['The Beatles', 'Hey Jude'],
+    ['Queen', 'Bohemian Rhapsody'],
+    ['The Beatles', 'Let It Be'],
+    ['Queen', 'We Will Rock You'],
+    ['The Beatles', 'Hey Jude'],
+    ['Queen', 'Bohemian Rhapsody'],
+    ['The Beatles', 'Hey Jude'],
+    ['Pink Floyd', 'Comfortably Numb'],
+    ['Queen', 'Bohemian Rhapsody'],
+    ['The Beatles', 'Hey Jude'],
+];
+
+foreach ($plays as [$artist, $song]) {
+    $music->playSong($artist, $song);
+}
+
+echo "🎵 Top artistes :\n";
+foreach ($music->getTopArtists(3) as $rank => $artist) {
+    echo "  #" . ($rank + 1) . " {$artist['name']} : {$artist['plays']} écoutes ({$artist['percentage']}%)\n";
+}
+
+echo "\n🎶 Top chansons :\n";
+foreach ($music->getTopSongs(3) as $rank => $song) {
+    echo "  #" . ($rank + 1) . " {$song['title']} : {$song['plays']} écoutes\n";
+}
+// Sortie :
+// 🎵 Top artistes :
+//   #1 The Beatles : 4 écoutes (40%)
+//   #2 Queen : 3 écoutes (30%)
+//   #3 Pink Floyd : 1 écoute (10%)
+// 
+// 🎶 Top chansons :
+//   #1 The Beatles - Hey Jude : 4 écoutes
+//   #2 Queen - Bohemian Rhapsody : 3 écoutes
+//   #3 The Beatles - Let It Be : 1 écoute
 ```
 
 ## Flux d'exécution
 
+### Ajout d'une valeur
+
 ```
 add($value, $increment)
     ↓
-getData() → ['items' => [], 'counts' => []]
+getData() → Récupérer les données du storage
     ↓
-$counts[$value] += $increment
+incrementCount($counts, $value, $increment) → Incrémenter le compteur
     ↓
-$value already in $items?
-    ├── Oui → sort and save
-    └── Non → count($items) < $k?
-         ├── Oui → add to items
-         └── Non → find min item
-              ↓
-         $counts[$value] > $minCount?
-              ├── Oui → replace min item
-              └── Non → ignore
+isValueTracked($items, $value) → L'élément est-il suivi ?
+    ├── OUI → Passer
+    └── NON → addOrReplaceItem($items, $counts, $value)
+                ↓
+        hasRoomForMoreItems($items) → Place disponible ?
+            ├── OUI → Ajouter $value aux items
+            └── NON → replaceLeastFrequentItem($items, $counts, $value)
+                        ↓
+                leastFrequent = findLeastFrequentItem($items, $counts)
+                        ↓
+                count($value) > count(leastFrequent) ?
+                        ↓
+                    OUI → Remplacer leastFrequent par $value
+                    NON → Ne rien faire
     ↓
-sort items by count (descending)
+sortItemsByCount($items, $counts) → Trier par ordre décroissant
     ↓
-saveData($data)
+saveData($data) → Persister dans le storage
 ```
+
+### Récupération des Top K
 
 ```
 getTop()
     ↓
-getData() → ['items' => [], 'counts' => []]
+getData() → Récupérer les données du storage
     ↓
-foreach item in items
+Pour chaque item dans items :
+    results->add(new TopKResultRecord(item, counts[item]))
     ↓
-    add TopKResultRecord($item, $counts[$item])
-    ↓
-return TopKResultCollection
+Retourner results
 ```
 
 ## Gestion des erreurs
 
 | Situation | Exception | Message |
 |-----------|-----------|---------|
-| Aucune exception explicite | - | - |
+| Aucune | - | - |
 
-**Note :** TopK ne lève pas d'exceptions. Les erreurs sont gérées silencieusement par l'utilisation de valeurs par défaut.
+**Note :** La classe ne lève pas d'exceptions directement. Les erreurs peuvent provenir de l'implémentation de `StorageInterface` utilisée.
 
 ## Intégration
 
-### Avec Storage
-
-TopK utilise `StorageInterface` pour la persistance des données :
+### Avec StorageKit
 
 ```php
-// Sauvegarde automatique
-$topK->add('value'); // Persiste dans storage
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+use AndyDefer\StorageKit\Storage\CacheStorage;
+use AndyDefer\AlgoKIT\Algorithms\TopK;
 
-// Récupération automatique
-$topK = new TopK($storage, 10, 'topk'); // Charge depuis storage
+// Stockage en mémoire (pour les tests)
+$memoryStorage = new MemoryStorage();
+$topK = new TopK($memoryStorage);
+
+// Stockage persistant avec cache
+$cacheStorage = new CacheStorage('redis');
+$topK = new TopK($cacheStorage, 20, 'production_topk');
 ```
 
-### Avec les Records
-
-TopK utilise des Records pour représenter les données :
-
-- `TopKRecord` : Représente une valeur à ajouter
-- `TopKResultRecord` : Représente un résultat de top-k
-
-### Avec les Collections
-
-TopK utilise des Collections typées :
-
-- `TopKCollection` : Collection de valeurs
-- `TopKResultCollection` : Collection de résultats
-
-### Avec CountMinSketch
-
-TopK et CountMinSketch peuvent être combinés pour des analyses avancées :
+### Avec les collections
 
 ```php
-// TopK pour les éléments les plus fréquents
+use AndyDefer\AlgoKIT\Collections\TopKCollection;
+use AndyDefer\AlgoKIT\Collections\TopKResultCollection;
+use AndyDefer\AlgoKIT\Records\TopKRecord;
+use AndyDefer\AlgoKIT\Records\TopKResultRecord;
+
+// Créer une collection de valeurs avec incréments
+$collection = new TopKCollection();
+$collection->add(new TopKRecord('php', 2));
+$collection->add(new TopKRecord('laravel', 1));
+$collection->add(new TopKRecord('python', 1));
+
+// Ajout en batch
+$topK->addBatch($collection);
+
+// Récupérer les résultats
+$results = $topK->getTop();
+
+// Filtrer pour obtenir les éléments avec > 1 occurrence
+$frequent = $results->filter(
+    fn(TopKResultRecord $r) => $r->count > 1
+);
+```
+
+### Avec les autres algorithmes
+
+TopK peut être combiné avec d'autres algorithmes probabilistes :
+
+- **Avec CountMinSketch** : Obtenir des fréquences plus précises
+- **Avec BloomFilter** : Vérifier l'appartenance des éléments
+- **Avec HyperLogLog** : Compter les éléments uniques dans le top
+
+```php
+use AndyDefer\AlgoKIT\Algorithms\TopK;
+use AndyDefer\AlgoKIT\Algorithms\CountMinSketch;
+
 $topK = new TopK($storage, 10, 'top');
-$topK->add('php');
-$topK->add('php');
+$cms = new CountMinSketch($storage, 10000, 5, 'frequencies');
 
-// CountMinSketch pour les fréquences exactes approximatives
-$cms = new CountMinSketch($storage, 10000, 5, 'freq');
-$cms->add('php');
-$cms->add('php');
+// Suivre les éléments fréquents
+$items = ['php', 'laravel', 'php', 'python', 'laravel', 'php'];
+foreach ($items as $item) {
+    $topK->add($item);
+    $cms->add($item);
+}
 
-$top = $topK->getTop();
-foreach ($top as $item) {
-    $estimated = $cms->count($item->value);
-    echo "{$item->value}: exact={$item->count}, estimé={$estimated}\n";
+// Obtenir des fréquences plus précises pour les top éléments
+foreach ($topK->getTop() as $result) {
+    $exact = $cms->count($result->value);
+    echo "{$result->value}: top={$result->count}, cms={$exact}\n";
 }
 ```
 
 ## Performance
 
-| Opération | Complexité | Notes |
-|-----------|------------|-------|
-| `add()` | O(k) | k = nombre d'éléments conservés |
-| `getTop()` | O(k) | k = nombre d'éléments conservés |
-| `addBatch()` | O(n*k) | n = nombre d'éléments, k = éléments conservés |
-| `clear()` | O(1) | Suppression de la clé dans le storage |
+| Opération | Complexité | Description |
+|-----------|------------|-------------|
+| `add()` | O(K) | Recherche du minimum parmi K éléments |
+| `getTop()` | O(1) | Lecture directe (déjà trié) |
+| `addBatch()` | O(n × K) | n = nombre d'éléments |
+| `clear()` | O(1) | Suppression de la clé en storage |
 
-**Optimisations :**
-- L'algorithme maintient une liste triée des K éléments
-- Les éléments non pertinents sont rapidement éliminés
-- La mémoire utilisée est bornée par K
+**Caractéristiques :**
+- **Mémoire constante** : Utilise toujours K × 2 entrées
+- **Temps de mise à jour** : O(K) pour trouver le minimum
+- **Scalabilité** : Indépendant du nombre total d'éléments
+
+**Recommandations :**
+
+| Usage | K recommandé | Description |
+|-------|--------------|-------------|
+| Petits flux | 5-10 | Tendances simples |
+| Flux moyens | 20-50 | Classements détaillés |
+| Grands flux | 50-100 | Analyses approfondies |
+| Très grands flux | 100-500 | Monitoring temps réel |
 
 ## Compatibilité
 
-| Version | Support |
-|---------|---------|
-| PHP 8.1+ | ✅ Complet |
-| PHP 8.0 | ✅ Complet |
-| PHP 7.4 | ❌ Non (nécessite PHP 8.0+) |
+| Version | Support | Notes |
+|---------|---------|-------|
+| PHP 8.1+ | ✅ Complet | Types et syntaxe recommandés |
+| PHP 8.0 | ✅ Complet | Compatible avec ajustements mineurs |
+| PHP 7.4 | ❌ Non supporté | Utilise `fn()` et `readonly` |
 
 ## Exemple complet
 
@@ -471,166 +618,117 @@ declare(strict_types=1);
 use AndyDefer\AlgoKIT\Algorithms\TopK;
 use AndyDefer\AlgoKIT\Collections\TopKCollection;
 use AndyDefer\AlgoKIT\Records\TopKRecord;
-use AndyDefer\AlgoKIT\Storage\MemoryStorage;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
 
 // 1. Initialisation
 $storage = new MemoryStorage();
-$topK = new TopK($storage, 5, 'test_topk');
+$topK = new TopK($storage, 3, 'demo_topk');
 
-echo "TopK avec K = 5\n\n";
+echo "🏆 DÉMONSTRATION TOP-K\n";
+echo "═════════════════════════\n\n";
 
-// 2. Ajout de valeurs
-echo "Ajout de valeurs:\n";
-$values = [
-    'php', 'laravel', 'php', 'python', 'javascript',
-    'php', 'laravel', 'php', 'go', 'rust',
-    'php', 'laravel', 'javascript', 'php', 'typescript'
-];
+// 2. Ajout de données
+echo "📝 Ajout de données :\n";
+$data = ['php', 'laravel', 'php', 'python', 'php', 'laravel', 'golang', 'php'];
 
-foreach ($values as $value) {
-    $topK->add($value);
-    echo "  + $value\n";
+foreach ($data as $item) {
+    $topK->add($item);
+    echo "  + $item\n";
 }
 
-echo "\n";
-
-// 3. Récupération du Top K
-echo "Top 5 des éléments les plus fréquents:\n";
-$top = $topK->getTop();
-foreach ($top as $index => $item) {
-    echo sprintf("  #%d: %s (%d occurrences)\n", $index + 1, $item->value, $item->count);
+// 3. Affichage du top initial
+echo "\n📊 Top initial (K=3) :\n";
+foreach ($topK->getTop() as $rank => $result) {
+    echo "  #" . ($rank + 1) . " {$result->value} : {$result->count}\n";
 }
 
-echo "\n";
+// 4. Ajout avec incréments
+echo "\n⬆️ Ajout avec incréments :\n";
+$topK->add('javascript', 3);
+$topK->add('python', 2);
+$topK->add('ruby', 1);
+echo "  + javascript (x3)\n";
+echo "  + python (x2)\n";
+echo "  + ruby (x1)\n";
 
-// 4. Test avec incréments multiples
-echo "Test avec incréments multiples:\n";
-$topK->add('python', 5);
-$topK->add('rust', 3);
-$topK->add('go', 2);
-
-$top = $topK->getTop();
-foreach ($top as $index => $item) {
-    echo sprintf("  #%d: %s (%d occurrences)\n", $index + 1, $item->value, $item->count);
+// 5. Affichage du top mis à jour
+echo "\n📊 Top après incréments :\n";
+foreach ($topK->getTop() as $rank => $result) {
+    $bar = str_repeat('█', min(20, $result->count * 4));
+    echo "  #" . ($rank + 1) . " {$result->value} : {$result->count} $bar\n";
 }
 
-echo "\n";
+// 6. Opérations batch
+echo "\n📦 Opérations batch :\n";
+$batch = new TopKCollection();
+$batch->add(new TopKRecord('javascript', 5));
+$batch->add(new TopKRecord('php', 10));
+$batch->add(new TopKRecord('golang', 2));
 
-// 5. Test des opérations batch
-echo "Test des opérations batch:\n";
-$collection = new TopKCollection();
-$collection->add(new TopKRecord('react', 4));
-$collection->add(new TopKRecord('vue', 3));
-$collection->add(new TopKRecord('angular', 2));
+$topK->addBatch($batch);
+echo "  ✓ Batch effectué\n";
 
-$topK->addBatch($collection);
-
-$top = $topK->getTop();
-foreach ($top as $index => $item) {
-    echo sprintf("  #%d: %s (%d occurrences)\n", $index + 1, $item->value, $item->count);
+// 7. Affichage final
+echo "\n🏁 Top final (K=3) :\n";
+foreach ($topK->getTop() as $rank => $result) {
+    $emoji = ['🥇', '🥈', '🥉'][$rank] ?? '🏅';
+    echo "  $emoji {$result->value} : {$result->count}\n";
 }
-
-echo "\n";
-
-// 6. Test de persistance
-echo "Test de persistance:\n";
-$topK2 = new TopK($storage, 5, 'test_topk');
-$top = $topK2->getTop();
-foreach ($top as $index => $item) {
-    echo sprintf("  #%d: %s (%d occurrences)\n", $index + 1, $item->value, $item->count);
-}
-
-echo "\n";
-
-// 7. Test avec différents K
-echo "Test avec différents K:\n";
-$ks = [3, 5, 10];
-foreach ($ks as $k) {
-    $testTopK = new TopK($storage, $k, "test_k_{$k}");
-    $testData = ['a', 'b', 'c', 'a', 'b', 'a', 'c', 'd', 'e', 'a', 'b'];
-    foreach ($testData as $value) {
-        $testTopK->add($value);
-    }
-    
-    $top = $testTopK->getTop();
-    echo "  K = {$k}: ";
-    echo implode(', ', array_map(function($item) {
-        return "{$item->value}({$item->count})";
-    }, $top->toArray()));
-    echo "\n";
-}
-
-echo "\n";
 
 // 8. Nettoyage
+echo "\n🧹 Nettoyage...\n";
 $topK->clear();
-echo "✓ TopK vidé\n";
-```
+echo "  ✓ TopK vidé\n";
 
-**Sortie attendue :**
-```
-TopK avec K = 5
+$empty = $topK->getTop();
+echo "  Éléments restants : " . count($empty) . "\n";
 
-Ajout de valeurs:
-  + php
-  + laravel
-  + php
-  + python
-  + javascript
-  + php
-  + laravel
-  + php
-  + go
-  + rust
-  + php
-  + laravel
-  + javascript
-  + php
-  + typescript
-
-Top 5 des éléments les plus fréquents:
-  #1: php (6 occurrences)
-  #2: laravel (3 occurrences)
-  #3: javascript (2 occurrences)
-  #4: python (1 occurrences)
-  #5: go (1 occurrences)
-
-Test avec incréments multiples:
-  #1: php (6 occurrences)
-  #2: python (6 occurrences)
-  #3: laravel (3 occurrences)
-  #4: rust (3 occurrences)
-  #5: javascript (2 occurrences)
-
-Test des opérations batch:
-  #1: php (6 occurrences)
-  #2: python (6 occurrences)
-  #3: react (4 occurrences)
-  #4: laravel (3 occurrences)
-  #5: rust (3 occurrences)
-
-Test de persistance:
-  #1: php (6 occurrences)
-  #2: python (6 occurrences)
-  #3: react (4 occurrences)
-  #4: laravel (3 occurrences)
-  #5: rust (3 occurrences)
-
-Test avec différents K:
-  K = 3: a(4), b(3), c(2)
-  K = 5: a(4), b(3), c(2), d(1), e(1)
-  K = 10: a(4), b(3), c(2), d(1), e(1)
-
-✓ TopK vidé
+// Exemple de sortie :
+// 🏆 DÉMONSTRATION TOP-K
+// ═════════════════════════
+// 
+// 📝 Ajout de données :
+//   + php
+//   + laravel
+//   + php
+//   + python
+//   + php
+//   + laravel
+//   + golang
+//   + php
+// 
+// 📊 Top initial (K=3) :
+//   #1 php : 4
+//   #2 laravel : 2
+//   #3 python : 1
+// 
+// ⬆️ Ajout avec incréments :
+//   + javascript (x3)
+//   + python (x2)
+//   + ruby (x1)
+// 
+// 📊 Top après incréments :
+//   #1 php : 4 ████████████████████
+//   #2 javascript : 3 ████████████
+//   #3 python : 3 ████████████
+// 
+// 📦 Opérations batch :
+//   ✓ Batch effectué
+// 
+// 🏁 Top final (K=3) :
+//   🥇 php : 14
+//   🥈 javascript : 8
+//   🥉 python : 3
+// 
+// 🧹 Nettoyage...
+//   ✓ TopK vidé
+//   Éléments restants : 0
 ```
 
 ## Voir aussi
 
-- `TopKInterface` - Interface du TopK
-- `TopKRecord` - Record pour les valeurs
-- `TopKResultRecord` - Record pour les résultats
-- `TopKCollection` - Collection de valeurs
-- `TopKResultCollection` - Collection de résultats
-- `CountMinSketch` - Structure pour les fréquences approximatives
-- `StorageInterface` - Interface de persistance
-- `MemoryStorage` - Implémentation mémoire du storage
+- [`count-min-sketch`](count-min-sketch.md) - Compteur probabiliste de fréquences
+- [`bloom-filter`](bloom-filter.md) - Test probabiliste d'appartenance
+- [`hyper-log-log`](hyper-log-log.md) - Estimation de cardinalité
+- [`bk-tree`](bk-tree.md) - Recherche floue par distance de Levenshtein
+- [`trie`](trie.md) - Recherche par préfixe

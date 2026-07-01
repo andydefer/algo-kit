@@ -2,26 +2,42 @@
 
 ## Description
 
-Trie (ou arbre préfixe) est une structure de données arborescente pour stocker des chaînes de caractères. Elle permet de rechercher efficacement tous les mots commençant par un préfixe donné, ce qui la rend idéale pour l'autocomplétion et les suggestions en temps réel. Le support des contextes permet d'isoler les dictionnaires par catégorie.
+Le Trie (arbre préfixe) est une structure de données arborescente permettant une recherche efficace par préfixe. Chaque nœud représente un caractère, et les mots partageant un préfixe commun partagent le même chemin, ce qui rend les recherches de préfixes extrêmement rapides.
 
 ## Hiérarchie / Implémentations
 
 ```
 TrieInterface
-    └── Trie
+    └── Trie (final)
 ```
 
-**Interfaces implémentées :** `TrieInterface`
+La classe implémente l'interface `TrieInterface` et utilise :
+- `StorageInterface` pour la persistance des données
+- `TrieCollection` pour les opérations batch
+- `TrieResultCollection` pour retourner les résultats
+- `TrieRecord` pour représenter un mot à insérer
+- `TrieResultRecord` pour représenter un résultat de recherche
 
 ## Rôle principal
 
-Le Trie organise les mots dans une structure arborescente où chaque nœud représente un caractère. Les mots partageant un préfixe commun partagent le même chemin dans l'arbre. Cette organisation permet une recherche de préfixe en O(1) pour les opérations de base et O(n) pour l'énumération des mots, où n est la longueur du préfixe.
+Le Trie répond à la question **"Quels mots commencent par ce préfixe ?"** en temps O(L) où L est la longueur du préfixe. Particulièrement adapté pour les fonctionnalités d'autocomplétion, de recherche par préfixe et de suggestions de mots.
+
+**Propriétés fondamentales :**
+- ✅ **Recherche rapide** : O(L) où L est la longueur du préfixe
+- ✅ **Partage de mémoire** : Les préfixes communs ne sont stockés qu'une fois
+- ✅ **Persistance** : Sauvegarde automatique dans le storage
+- ✅ **Contexte** : Isolation des données par contexte
+- ⚠️ **Mémoire** : Peut être plus gourmand qu'une simple liste pour des mots courts
 
 ## Installation
 
 ```bash
-composer require andydefer/algokit
+composer require andydefer/algo-kit
 ```
+
+Prérequis :
+- PHP 8.1 ou supérieur
+- Extension `storage-kit` installée
 
 ## API / Méthodes publiques
 
@@ -29,15 +45,15 @@ composer require andydefer/algokit
 
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$storage` | `StorageInterface` | Instance du système de stockage |
-| `$key` | `string` | Clé d'identification dans le storage (défaut: 'trie') |
+| `$storage` | `StorageInterface` | Backend de stockage pour la persistance |
+| `$key` | `string` | Clé unique identifiant le trie (défaut : 'trie') |
 
 **Retourne :** `void`
 
 **Exemple :**
 ```php
 $storage = new MemoryStorage();
-$trie = new Trie($storage, 'autocomplete');
+$trie = new Trie($storage, 'city_names');
 ```
 
 ---
@@ -48,8 +64,8 @@ Insère un mot dans le trie.
 
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$word` | `string` | Mot à insérer |
-| `$context` | `string|null` | Contexte pour isoler les données (défaut: null) |
+| `$word` | `string` | Le mot à insérer |
+| `$context` | `string|null` | Contexte optionnel pour isoler les données |
 
 **Retourne :** `void`
 
@@ -57,32 +73,32 @@ Insère un mot dans le trie.
 ```php
 $trie->insert('laravel');
 $trie->insert('laragon');
-$trie->insert('bonjour', 'french');
+$trie->insert('laptop', 'products');
 ```
 
 ---
 
 ### `search(string $prefix, ?string $context = null, int $limit = 10): TrieResultCollection`
 
-Recherche tous les mots commençant par un préfixe donné.
+Recherche les mots commençant par un préfixe donné.
 
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$prefix` | `string` | Préfixe à rechercher |
-| `$context` | `string|null` | Contexte de la recherche (défaut: null) |
-| `$limit` | `int` | Nombre maximum de résultats (défaut: 10) |
+| `$prefix` | `string` | Le préfixe à rechercher |
+| `$context` | `string|null` | Contexte optionnel pour isoler les données |
+| `$limit` | `int` | Nombre maximum de résultats (défaut : 10) |
 
-**Retourne :** `TrieResultCollection` - Collection des mots trouvés (incluant le contexte)
+**Retourne :** `TrieResultCollection` - Collection des mots correspondants
 
 **Exemple :**
 ```php
-$results = $trie->search('lar', 5);
+$results = $trie->search('lar', null, 5);
 foreach ($results as $result) {
     echo $result->word . "\n";
 }
-
-$frenchResults = $trie->search('bon', 'french');
-// Retourne uniquement les mots français commençant par 'bon'
+// laravel
+// laragon
+// large
 ```
 
 ---
@@ -100,8 +116,9 @@ Insère plusieurs mots en lot.
 **Exemple :**
 ```php
 $collection = new TrieCollection();
-$collection->add(new TrieRecord('laravel'));
+$collection->add(new TrieRecord('php'));
 $collection->add(new TrieRecord('python'));
+$collection->add(new TrieRecord('javascript'));
 $trie->insertBatch($collection);
 ```
 
@@ -114,15 +131,19 @@ Recherche plusieurs préfixes en lot.
 | Paramètre | Type | Description |
 |-----------|------|-------------|
 | `$collection` | `TrieCollection` | Collection de préfixes à rechercher |
-| `$limit` | `int` | Nombre maximum de résultats par préfixe (défaut: 10) |
+| `$limit` | `int` | Maximum de résultats par préfixe (défaut : 10) |
 
-**Retourne :** `array<string, TrieResultCollection>` - Tableau associatif préfixe (ou contexte:préfixe) → résultats
+**Retourne :** `array<string, TrieResultCollection>` - Map préfixe → résultats
 
 **Exemple :**
 ```php
+$collection = new TrieCollection();
+$collection->add(new TrieRecord('la'));
+$collection->add(new TrieRecord('py'));
+
 $results = $trie->searchBatch($collection);
-foreach ($results as $prefix => $words) {
-    echo "Préfixe '$prefix': " . count($words) . " mots\n";
+foreach ($results['la'] as $result) {
+    echo $result->word . "\n";
 }
 ```
 
@@ -130,109 +151,93 @@ foreach ($results as $prefix => $words) {
 
 ### `clear(): void`
 
-Vide complètement le trie.
+Supprime toutes les données du trie.
 
 **Retourne :** `void`
 
 **Exemple :**
 ```php
-$trie->clear();
+$trie->clear(); // Réinitialise complètement
 ```
+
+---
 
 ## Cas d'utilisation
 
 ### Cas 1 : Autocomplétion de recherche
 
 ```php
+<?php
+
+declare(strict_types=1);
+
 use AndyDefer\AlgoKIT\Algorithms\Trie;
-use AndyDefer\AlgoKIT\Storage\MemoryStorage;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
 
-$storage = new MemoryStorage();
-$trie = new Trie($storage, 'search_autocomplete');
-
-// Indexation des termes de recherche
-$searchTerms = [
-    'laravel', 'laragon', 'large', 'laptop',
-    'php', 'python', 'puppet', 'pascal',
-    'javascript', 'java', 'jupyter'
-];
-
-foreach ($searchTerms as $term) {
-    $trie->insert($term);
-}
-
-// Autocomplétion en temps réel
-function autocomplete(Trie $trie, string $input): array
-{
-    $results = $trie->search($input, 5);
-    return array_map(function($result) {
-        return $result->word;
-    }, $results->toArray());
-}
-
-echo "Suggestions pour 'la': " . implode(', ', autocomplete($trie, 'la')) . "\n";
-echo "Suggestions pour 'p': " . implode(', ', autocomplete($trie, 'p')) . "\n";
-echo "Suggestions pour 'j': " . implode(', ', autocomplete($trie, 'j')) . "\n";
-```
-
-### Cas 2 : Dictionnaire multi-langues avec contexte
-
-```php
-class MultiLanguageDictionary
+class SearchAutocomplete
 {
     private Trie $trie;
-    private array $weights = [];
     
     public function __construct(Trie $trie)
     {
         $this->trie = $trie;
     }
     
-    public function addWord(string $word, string $language, int $weight = 1): void
+    public function indexTerms(array $terms): void
     {
-        $this->trie->insert($word, $language);
-        $key = $language . ':' . $word;
-        $this->weights[$key] = ($this->weights[$key] ?? 0) + $weight;
+        foreach ($terms as $term) {
+            $this->trie->insert($term);
+        }
     }
     
-    public function suggest(string $prefix, string $language, int $limit = 10): array
+    public function suggest(string $query, int $limit = 5): array
     {
-        $results = $this->trie->search($prefix, $language, $limit * 2);
-        
-        $suggestions = [];
-        foreach ($results as $result) {
-            $key = $language . ':' . $result->word;
-            $suggestions[$result->word] = $this->weights[$key] ?? 0;
-        }
-        
-        arsort($suggestions);
-        return array_slice(array_keys($suggestions), 0, $limit);
+        $results = $this->trie->search($query, null, $limit);
+        return array_map(
+            fn($result) => $result->word,
+            $results->toArray()
+        );
     }
 }
 
 // Utilisation
 $storage = new MemoryStorage();
-$trie = new Trie($storage, 'multilingual_dict');
-$dict = new MultiLanguageDictionary($trie);
+$trie = new Trie($storage, 'search_terms');
+$autocomplete = new SearchAutocomplete($trie);
 
-// Ajout de mots par langue
-$dict->addWord('bonjour', 'french', 10);
-$dict->addWord('salut', 'french', 8);
-$dict->addWord('hello', 'english', 15);
-$dict->addWord('hi', 'english', 12);
-$dict->addWord('hola', 'spanish', 5);
+// Indexer les termes de recherche populaires
+$terms = [
+    'php', 'python', 'javascript', 'laravel', 'laragon',
+    'pandas', 'pytorch', 'tensorflow', 'docker', 'kubernetes'
+];
 
-echo "Suggestions françaises pour 'bo':\n";
-print_r($dict->suggest('bo', 'french', 3));
+$autocomplete->indexTerms($terms);
 
-echo "\nSuggestions anglaises pour 'h':\n";
-print_r($dict->suggest('h', 'english', 3));
+// Suggestions
+$queries = ['py', 'la', 'do'];
+foreach ($queries as $query) {
+    $suggestions = $autocomplete->suggest($query, 3);
+    echo "🔍 '$query' → " . implode(', ', $suggestions) . "\n";
+}
+// Sortie :
+// 🔍 'py' → python, pytorch, pandas
+// 🔍 'la' → laravel, laragon
+// 🔍 'do' → docker
 ```
 
-### Cas 3 : Moteur de recherche multi-préfixes
+### Cas 2 : Catalogue de produits par contexte
 
 ```php
-class MultiPrefixSearch
+<?php
+
+declare(strict_types=1);
+
+use AndyDefer\AlgoKIT\Algorithms\Trie;
+use AndyDefer\AlgoKIT\Collections\TrieCollection;
+use AndyDefer\AlgoKIT\Records\TrieRecord;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+
+class ProductCatalog
 {
     private Trie $trie;
     
@@ -241,37 +246,242 @@ class MultiPrefixSearch
         $this->trie = $trie;
     }
     
-    public function indexDocuments(array $documents): void
+    public function addProduct(string $category, string $productName): void
+    {
+        $this->trie->insert($productName, $category);
+    }
+    
+    public function addProductsBatch(string $category, array $products): void
     {
         $collection = new TrieCollection();
-        
-        foreach ($documents as $doc) {
-            $words = explode(' ', strtolower($doc['content']));
-            foreach ($words as $word) {
-                $word = trim(preg_replace('/[^a-zA-Z0-9]/', '', $word));
-                if (!empty($word)) {
-                    $collection->add(new TrieRecord($word));
-                }
-            }
+        foreach ($products as $product) {
+            $collection->add(new TrieRecord($product, $category));
         }
-        
         $this->trie->insertBatch($collection);
     }
     
-    public function searchPrefixes(array $prefixes, int $limit = 5): array
+    public function searchInCategory(string $category, string $prefix, int $limit = 10): array
+    {
+        $results = $this->trie->search($prefix, $category, $limit);
+        return array_map(
+            fn($result) => $result->word,
+            $results->toArray()
+        );
+    }
+}
+
+// Utilisation
+$storage = new MemoryStorage();
+$trie = new Trie($storage, 'products');
+$catalog = new ProductCatalog($trie);
+
+// Ajouter des produits par catégorie
+$catalog->addProductsBatch('electronics', [
+    'smartphone', 'smartwatch', 'smarttv', 'speaker', 'headphones'
+]);
+
+$catalog->addProductsBatch('books', [
+    'smart thinking', 'smart habits', 'php book', 'python guide'
+]);
+
+// Recherche dans chaque catégorie
+$search = 'smart';
+echo "📱 Électronique :\n";
+foreach ($catalog->searchInCategory('electronics', $search, 3) as $product) {
+    echo "  • $product\n";
+}
+
+echo "\n📚 Livres :\n";
+foreach ($catalog->searchInCategory('books', $search, 3) as $product) {
+    echo "  • $product\n";
+}
+// Sortie :
+// 📱 Électronique :
+//   • smartphone
+//   • smartwatch
+//   • smarttv
+// 
+// 📚 Livres :
+//   • smart thinking
+//   • smart habits
+```
+
+### Cas 3 : Dictionnaire multilingue
+
+```php
+<?php
+
+declare(strict_types=1);
+
+use AndyDefer\AlgoKIT\Algorithms\Trie;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+
+class Dictionary
+{
+    private Trie $trie;
+    
+    public function __construct(Trie $trie)
+    {
+        $this->trie = $trie;
+    }
+    
+    public function addWord(string $word, string $language): void
+    {
+        $this->trie->insert($word, $language);
+    }
+    
+    public function getSuggestions(string $prefix, string $language, int $limit = 5): array
+    {
+        $results = $this->trie->search($prefix, $language, $limit);
+        return array_map(
+            fn($result) => $result->word,
+            $results->toArray()
+        );
+    }
+    
+    public function searchMultipleLanguages(string $prefix, array $languages, int $limit = 3): array
     {
         $collection = new TrieCollection();
-        foreach ($prefixes as $prefix) {
-            $collection->add(new TrieRecord(strtolower($prefix)));
+        foreach ($languages as $lang) {
+            $collection->add(new TrieRecord($prefix, $lang));
         }
         
         $results = $this->trie->searchBatch($collection, $limit);
+        $suggestions = [];
         
+        foreach ($languages as $lang) {
+            $key = $lang . ':' . $prefix;
+            if (isset($results[$key])) {
+                $suggestions[$lang] = array_map(
+                    fn($result) => $result->word,
+                    $results[$key]->toArray()
+                );
+            }
+        }
+        
+        return $suggestions;
+    }
+}
+
+// Utilisation
+$storage = new MemoryStorage();
+$trie = new Trie($storage, 'dictionary');
+$dictionary = new Dictionary($trie);
+
+// Ajouter des mots dans différentes langues
+$words = [
+    'bonjour' => 'fr',
+    'bonsoir' => 'fr',
+    'bonne' => 'fr',
+    'hello' => 'en',
+    'help' => 'en',
+    'hell' => 'en',
+    'hola' => 'es',
+    'hombre' => 'es',
+];
+
+foreach ($words as $word => $language) {
+    $dictionary->addWord($word, $language);
+}
+
+// Suggestions par langue
+echo "🇫🇷 Français :\n";
+foreach ($dictionary->getSuggestions('bon', 'fr', 3) as $word) {
+    echo "  • $word\n";
+}
+
+echo "\n🇬🇧 Anglais :\n";
+foreach ($dictionary->getSuggestions('hel', 'en', 3) as $word) {
+    echo "  • $word\n";
+}
+
+// Recherche multi-langues
+echo "\n🌍 Recherche multi-langues :\n";
+$results = $dictionary->searchMultipleLanguages('ho', ['fr', 'en', 'es'], 2);
+foreach ($results as $lang => $words) {
+    echo "  $lang : " . implode(', ', $words) . "\n";
+}
+// Sortie :
+// 🇫🇷 Français :
+//   • bonjour
+//   • bonsoir
+//   • bonne
+// 
+// 🇬🇧 Anglais :
+//   • hello
+//   • help
+//   • hell
+// 
+// 🌍 Recherche multi-langues :
+//   fr : 
+//   en : 
+//   es : hola, hombre
+```
+
+### Cas 4 : API d'autocomplétion avec batch
+
+```php
+<?php
+
+declare(strict_types=1);
+
+use AndyDefer\AlgoKIT\Algorithms\Trie;
+use AndyDefer\AlgoKIT\Collections\TrieCollection;
+use AndyDefer\AlgoKIT\Records\TrieRecord;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+
+class AutocompleteAPI
+{
+    private Trie $trie;
+    
+    public function __construct(Trie $trie)
+    {
+        $this->trie = $trie;
+    }
+    
+    public function index($data): void
+    {
+        $collection = new TrieCollection();
+        foreach ($data as $item) {
+            $context = $item['category'] ?? null;
+            $collection->add(new TrieRecord($item['name'], $context));
+        }
+        $this->trie->insertBatch($collection);
+    }
+    
+    public function searchMultiple(array $queries, array $contexts = [], int $limit = 5): array
+    {
+        $collection = new TrieCollection();
+        
+        foreach ($queries as $query) {
+            foreach ($contexts as $context) {
+                $collection->add(new TrieRecord($query, $context));
+            }
+            $collection->add(new TrieRecord($query));
+        }
+        
+        $results = $this->trie->searchBatch($collection, $limit);
         $formatted = [];
-        foreach ($results as $prefix => $words) {
-            $formatted[$prefix] = array_map(function($result) {
-                return $result->word;
-            }, $words->toArray());
+        
+        foreach ($queries as $query) {
+            $formatted[$query] = [];
+            foreach ($contexts as $context) {
+                $key = $context . ':' . $query;
+                if (isset($results[$key])) {
+                    $formatted[$query][$context] = array_map(
+                        fn($r) => $r->word,
+                        $results[$key]->toArray()
+                    );
+                }
+            }
+            // Résultats globaux
+            $globalKey = $query;
+            if (isset($results[$globalKey])) {
+                $formatted[$query]['global'] = array_map(
+                    fn($r) => $r->word,
+                    $results[$globalKey]->toArray()
+                );
+            }
         }
         
         return $formatted;
@@ -280,214 +490,213 @@ class MultiPrefixSearch
 
 // Utilisation
 $storage = new MemoryStorage();
-$trie = new Trie($storage, 'document_search');
-$engine = new MultiPrefixSearch($trie);
+$trie = new Trie($storage, 'api_autocomplete');
+$api = new AutocompleteAPI($trie);
 
-$documents = [
-    ['id' => 1, 'content' => 'PHP is a popular programming language'],
-    ['id' => 2, 'content' => 'Laravel is a PHP framework'],
-    ['id' => 3, 'content' => 'Python is used for data science'],
-    ['id' => 4, 'content' => 'JavaScript is for web development']
+// Indexer des données
+$data = [
+    ['name' => 'php', 'category' => 'lang'],
+    ['name' => 'python', 'category' => 'lang'],
+    ['name' => 'phpstorm', 'category' => 'ide'],
+    ['name' => 'phper', 'category' => 'lang'],
+    ['name' => 'pandas', 'category' => 'lib'],
+    ['name' => 'pytorch', 'category' => 'lib'],
 ];
 
-$engine->indexDocuments($documents);
+$api->index($data);
 
-$results = $engine->searchPrefixes(['p', 'la', 'ja', 'web']);
-echo "Résultats de recherche:\n";
-foreach ($results as $prefix => $words) {
-    echo "  '$prefix': " . implode(', ', $words) . "\n";
+// Recherche multiple
+$queries = ['ph', 'py', 'pa'];
+$contexts = ['lang', 'lib', 'ide'];
+
+$results = $api->searchMultiple($queries, $contexts, 3);
+
+foreach ($results as $query => $contextResults) {
+    echo "🔍 '$query' :\n";
+    foreach ($contextResults as $context => $words) {
+        echo "  $context: " . implode(', ', $words) . "\n";
+    }
+    echo "\n";
 }
-```
-
-### Cas 4 : Dictionnaire par catégorie (contexte avancé)
-
-```php
-class CategorizedDictionary
-{
-    private Trie $trie;
-    
-    public function __construct(Trie $trie)
-    {
-        $this->trie = $trie;
-    }
-    
-    public function addCategoryWord(string $word, string $category): void
-    {
-        $this->trie->insert($word, $category);
-    }
-    
-    public function addWordToMultipleCategories(string $word, array $categories): void
-    {
-        foreach ($categories as $category) {
-            $this->trie->insert($word, $category);
-        }
-    }
-    
-    public function searchInCategory(string $prefix, string $category, int $limit = 10): array
-    {
-        $results = $this->trie->search($prefix, $category, $limit);
-        return array_map(function($result) {
-            return $result->word;
-        }, $results->toArray());
-    }
-    
-    public function searchAllCategories(string $prefix, int $limit = 10): array
-    {
-        // Recherche sans contexte = tous les contextes
-        $results = $this->trie->search($prefix, null, $limit);
-        $grouped = [];
-        
-        foreach ($results as $result) {
-            $grouped[$result->context ?? 'global'][] = $result->word;
-        }
-        
-        return $grouped;
-    }
-}
-
-// Utilisation
-$storage = new MemoryStorage();
-$trie = new Trie($storage, 'categorized_dict');
-$dict = new CategorizedDictionary($trie);
-
-// Ajout par catégorie
-$dict->addCategoryWord('apple', 'fruits');
-$dict->addCategoryWord('banana', 'fruits');
-$dict->addCategoryWord('carrot', 'vegetables');
-$dict->addCategoryWord('php', 'programming');
-$dict->addCategoryWord('python', 'programming');
-$dict->addCategoryWord('apple', 'brands'); // Le même mot dans un autre contexte
-
-echo "Fruits en 'a': " . implode(', ', $dict->searchInCategory('a', 'fruits')) . "\n";
-echo "Programmation en 'p': " . implode(', ', $dict->searchInCategory('p', 'programming')) . "\n";
-
-echo "\nRecherche tous contextes 'a':\n";
-print_r($dict->searchAllCategories('a'));
+// Sortie :
+// 🔍 'ph' :
+//   lang: php, phper
+//   lib: 
+//   ide: phpstorm
+//   global: php, phper, phpstorm
+// 
+// 🔍 'py' :
+//   lang: python
+//   lib: pytorch
+//   ide: 
+//   global: python, pytorch
+// 
+// 🔍 'pa' :
+//   lang: 
+//   lib: pandas
+//   ide: 
+//   global: pandas
 ```
 
 ## Flux d'exécution
 
+### Insertion d'un mot
+
 ```
 insert($word, $context)
     ↓
-getRoot() → nœud racine
+getRoot() → Récupérer la racine
     ↓
-node = &getContextNode($root, $context)
+currentNode = getContextNode($root, $context)
     ↓
-for each char in word
+Pour chaque caractère dans str_split($word) :
+    currentNode = ensureChildNodeExists($currentNode, $character)
     ↓
-    char exists in node->children?
-        ├── Non → create new node
-        └── Oui → use existing node
+addWordToNode($currentNode, $word)
     ↓
-    node = &node->children[char]
-    ↓
-word already in node->words?
-    ├── Non → add word to node->words
-    └── Oui → ignore
-    ↓
-saveRoot($root)
+saveRoot($root) → Persister
 ```
+
+### Recherche par préfixe
 
 ```
 search($prefix, $context, $limit)
     ↓
-getRoot() → nœud racine
+getRoot() → Récupérer la racine
     ↓
-findNode($root, $prefix, $context) → node
+startingNode = findNode($root, $prefix, $context)
     ↓
-node === null? → return empty collection
+startingNode === null ?
+    ├── OUI → Retourner collection vide
+    └── NON → collectWords($startingNode, $prefix, $limit)
+                ↓
+        collectWordsRecursive() → Parcours DFS
+                ↓
+        Ajouter chaque mot trouvé à la collection
+                ↓
+Retourner collection
+```
+
+### Parcours récursif de collecte
+
+```
+collectWordsRecursive($node, $prefix, $limit, &$results)
     ↓
-collectWords($node, $prefix, $limit)
+Pour chaque mot dans $node['words'] :
+    Ajouter $word à $results
+    Si count($results) >= $limit → Arrêter
     ↓
-for each word in node->words
+Pour chaque enfant ($character, $childNode) :
+    Si count($results) >= $limit → Sortir de la boucle
     ↓
-    add to results with context
-    ↓
-for each child
-    ↓
-    collectWords(child, prefix + char, limit)
-    ↓
-return TrieResultCollection
+    collectWordsRecursive($childNode, $prefix . $character, $limit, $results)
 ```
 
 ## Gestion des erreurs
 
 | Situation | Exception | Message |
 |-----------|-----------|---------|
-| Aucune exception explicite | - | - |
+| Aucune | - | - |
 
-**Note :** Trie ne lève pas d'exceptions. Les erreurs sont gérées silencieusement par l'utilisation de valeurs par défaut.
+**Note :** La classe ne lève pas d'exceptions directement. Les erreurs peuvent provenir de l'implémentation de `StorageInterface` utilisée.
 
 ## Intégration
 
-### Avec Storage
-
-Trie utilise `StorageInterface` pour la persistance des données :
+### Avec StorageKit
 
 ```php
-// Sauvegarde automatique
-$trie->insert('word'); // Persiste dans storage
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+use AndyDefer\StorageKit\Storage\CacheStorage;
+use AndyDefer\AlgoKIT\Algorithms\Trie;
 
-// Récupération automatique
-$trie = new Trie($storage, 'trie'); // Charge depuis storage
+// Stockage en mémoire (pour les tests)
+$memoryStorage = new MemoryStorage();
+$trie = new Trie($memoryStorage);
+
+// Stockage persistant avec cache
+$cacheStorage = new CacheStorage('redis');
+$trie = new Trie($cacheStorage, 'production_trie');
 ```
 
-### Avec les Records
+### Avec les collections
 
-Trie utilise des Records pour représenter les données :
+```php
+use AndyDefer\AlgoKIT\Collections\TrieCollection;
+use AndyDefer\AlgoKIT\Collections\TrieResultCollection;
+use AndyDefer\AlgoKIT\Records\TrieRecord;
+use AndyDefer\AlgoKIT\Records\TrieResultRecord;
 
-- `TrieRecord` : Représente un mot à insérer
-- `TrieResultRecord` : Représente un résultat de recherche (inclut le contexte)
+// Créer une collection de mots à insérer
+$collection = new TrieCollection();
+$collection->add(new TrieRecord('laravel'));
+$collection->add(new TrieRecord('python', 'lang'));
 
-### Avec les Collections
+// Insertion batch
+$trie->insertBatch($collection);
 
-Trie utilise des Collections typées :
+// Recherche batch
+$search = new TrieCollection();
+$search->add(new TrieRecord('la'));
+$search->add(new TrieRecord('py', 'lang'));
 
-- `TrieCollection` : Collection de mots
-- `TrieResultCollection` : Collection de résultats
-
-### Structure avec contexte
-
+$results = $trie->searchBatch($search);
+foreach ($results as $key => $resultCollection) {
+    $words = array_map(fn($r) => $r->word, $resultCollection->toArray());
+    echo "$key: " . implode(', ', $words) . "\n";
+}
 ```
-Storage Key: 'trie'
-├── root: {           // Données globales (sans contexte)
-│   ├── children: []
-│   └── words: []
-│   }
-├── french: {         // Contexte 'french'
-│   ├── children: []
-│   └── words: []
-│   }
-└── english: {        // Contexte 'english'
-    ├── children: []
-    └── words: []
+
+### Avec les autres algorithmes
+
+Le Trie peut être combiné avec d'autres algorithmes :
+
+- **Avec BKTree** : Suggestions + corrections orthographiques
+- **Avec CountMinSketch** : Suivi des fréquences des recherches
+
+```php
+use AndyDefer\AlgoKIT\Algorithms\Trie;
+use AndyDefer\AlgoKIT\Algorithms\BKTree;
+
+$trie = new Trie($storage, 'autocomplete');
+$bkTree = new BKTree($storage, 'spell_check');
+
+// Autocomplétion + correction
+function suggestWithCorrection($query) {
+    $suggestions = $trie->search($query);
+    
+    if ($suggestions->isEmpty()) {
+        // Correction orthographique
+        $corrected = $bkTree->search($query, 2, 1);
+        if (!$corrected->isEmpty()) {
+            $suggestions = $trie->search($corrected->first()->word);
+        }
     }
+    
+    return $suggestions;
+}
 ```
 
 ## Performance
 
-| Opération | Complexité | Notes |
-|-----------|------------|-------|
-| `insert()` | O(n) | n = longueur du mot |
-| `search()` | O(n + m) | n = longueur du préfixe, m = nombre de résultats |
-| `insertBatch()` | O(N) | N = longueur totale des mots |
-| `searchBatch()` | O(p * (n + m)) | p = nombre de préfixes |
-| `clear()` | O(1) | Suppression de la clé dans le storage |
+| Opération | Complexité | Description |
+|-----------|------------|-------------|
+| `insert()` | O(L) | L = longueur du mot |
+| `search()` | O(L + M) | L = longueur du préfixe, M = mots trouvés |
+| `insertBatch()` | O(N × L) | N = nombre de mots |
+| `searchBatch()` | O(P × (L + M)) | P = nombre de préfixes |
 
-**Optimisations :**
-- Les mots partagent des préfixes communs
-- La recherche est limitée par le nombre de résultats
-- La structure est optimisée pour les lectures
-- Les contextes isolent les données pour des recherches ciblées
+**Caractéristiques :**
+- **Recherche rapide** : Indépendante du nombre total de mots
+- **Mémoire partagée** : Les préfixes communs sont stockés une seule fois
+- **Limite** : Contrôle le nombre de résultats retournés
 
 ## Compatibilité
 
-| Version | Support |
-|---------|---------|
-| PHP 8.1+ | ✅ Complet |
-| PHP 8.0 | ✅ Complet |
-| PHP 7.4 | ❌ Non (nécessite PHP 8.0+) |
+| Version | Support | Notes |
+|---------|---------|-------|
+| PHP 8.1+ | ✅ Complet | Types et syntaxe recommandés |
+| PHP 8.0 | ✅ Complet | Compatible avec ajustements mineurs |
+| PHP 7.4 | ❌ Non supporté | Utilise `fn()` et `readonly` |
 
 ## Exemple complet
 
@@ -499,159 +708,140 @@ declare(strict_types=1);
 use AndyDefer\AlgoKIT\Algorithms\Trie;
 use AndyDefer\AlgoKIT\Collections\TrieCollection;
 use AndyDefer\AlgoKIT\Records\TrieRecord;
-use AndyDefer\AlgoKIT\Storage\MemoryStorage;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
 
 // 1. Initialisation
 $storage = new MemoryStorage();
-$trie = new Trie($storage, 'test_trie');
+$trie = new Trie($storage, 'demo_trie');
 
-echo "=== Test du Trie avec contextes ===\n\n";
+echo "🌳 DÉMONSTRATION TRIE\n";
+echo "═══════════════════════\n\n";
 
-// 2. Insertion de mots avec contextes
-echo "2. Insertion de mots:\n";
-$data = [
-    ['laravel', 'framework'],
-    ['laragon', 'framework'],
-    ['large', 'english'],
-    ['laptop', 'english'],
-    ['bonjour', 'french'],
-    ['bonsoir', 'french'],
-    ['hello', 'english'],
-    ['php', 'language'],
-    ['python', 'language']
-];
+// 2. Insertion de mots
+echo "📝 Insertion de mots :\n";
+$words = ['php', 'python', 'pandas', 'laravel', 'laragon', 'laptop'];
 
-foreach ($data as [$word, $context]) {
-    $trie->insert($word, $context);
-    echo "  + $word ($context)\n";
+foreach ($words as $word) {
+    $trie->insert($word);
+    echo "  + $word\n";
 }
 
-echo "\n";
+// 3. Recherche par préfixe
+echo "\n🔍 Recherche par préfixe :\n";
+$prefixes = ['la', 'py', 'p'];
 
-// 3. Recherche simple avec contexte
-echo "3. Recherche avec contexte:\n";
-$searches = [
-    ['lar', 'framework'],
-    ['bon', 'french'],
-    ['hel', 'english'],
-    ['p', 'language']
-];
-
-foreach ($searches as [$prefix, $context]) {
-    $results = $trie->search($prefix, $context, 5);
-    $words = array_map(function($result) {
-        return $result->word;
-    }, $results->toArray());
-    echo "  '$prefix' ($context): " . implode(', ', $words) . "\n";
+foreach ($prefixes as $prefix) {
+    $results = $trie->search($prefix, null, 5);
+    $words = array_map(fn($r) => $r->word, $results->toArray());
+    echo "  '$prefix' → " . implode(', ', $words) . "\n";
 }
 
-echo "\n";
+// 4. Insertion avec contexte
+echo "\n📚 Insertion avec contexte :\n";
+$trie->insert('php', 'language');
+$trie->insert('phpstorm', 'ide');
+$trie->insert('phpunit', 'tool');
+$trie->insert('javascript', 'language');
+echo "  + php (language)\n";
+echo "  + phpstorm (ide)\n";
+echo "  + phpunit (tool)\n";
+echo "  + javascript (language)\n";
 
-// 4. Recherche sans contexte (tous les contextes)
-echo "4. Recherche sans contexte (tous):\n";
-$results = $trie->search('la', null, 10);
-$words = array_map(function($result) {
-    return $result->word . ' (' . ($result->context ?? 'global') . ')';
-}, $results->toArray());
-echo "  'la': " . implode(', ', $words) . "\n";
+// 5. Recherche par contexte
+echo "\n🔎 Recherche par contexte :\n";
+$contexts = ['language', 'ide', 'tool'];
 
-echo "\n";
+foreach ($contexts as $context) {
+    $results = $trie->search('php', $context, 5);
+    $words = array_map(fn($r) => $r->word, $results->toArray());
+    $count = count($words);
+    echo "  $context ($count) : " . implode(', ', $words) . "\n";
+}
 
-// 5. Insertion par lot avec contexte
-echo "5. Insertion par lot avec contexte:\n";
-$collection = new TrieCollection();
-$collection->add(new TrieRecord('react', 'framework'));
-$collection->add(new TrieRecord('vue', 'framework'));
-$collection->add(new TrieRecord('angular', 'framework'));
+// 6. Opérations batch
+echo "\n📦 Opérations batch :\n";
 
-$trie->insertBatch($collection);
-echo "  + react, vue, angular (framework)\n";
+// Insertion batch
+$batch = new TrieCollection();
+$batch->add(new TrieRecord('golang', 'language'));
+$batch->add(new TrieRecord('docker', 'tool'));
+$batch->add(new TrieRecord('kubernetes', 'tool'));
 
-echo "\n";
+$trie->insertBatch($batch);
+echo "  ✓ Insertion batch effectuée\n";
 
-// 6. Recherche par lot
-echo "6. Recherche par lot:\n";
-$searchCollection = new TrieCollection();
-$searchCollection->add(new TrieRecord('r', 'framework'));
-$searchCollection->add(new TrieRecord('v', 'framework'));
-$searchCollection->add(new TrieRecord('a', 'framework'));
+// Recherche batch
+$search = new TrieCollection();
+$search->add(new TrieRecord('gol', 'language'));
+$search->add(new TrieRecord('doc', 'tool'));
+$search->add(new TrieRecord('kub', 'tool'));
 
-$results = $trie->searchBatch($searchCollection, 3);
+$results = $trie->searchBatch($search, 3);
 foreach ($results as $key => $resultCollection) {
-    $words = array_map(function($result) {
-        return $result->word;
-    }, $resultCollection->toArray());
-    echo "  '$key': " . implode(', ', $words) . "\n";
+    $words = array_map(fn($r) => $r->word, $resultCollection->toArray());
+    echo "  $key → " . implode(', ', $words) . "\n";
 }
 
-echo "\n";
-
-// 7. Test de persistance
-echo "7. Test de persistance:\n";
-$trie2 = new Trie($storage, 'test_trie');
-$results = $trie2->search('la', 'framework', 5);
-$words = array_map(function($result) {
-    return $result->word;
-}, $results->toArray());
-echo "  Mots en 'la' (framework) après récupération: " . implode(', ', $words) . "\n";
-
-echo "\n";
+// 7. Limite des résultats
+echo "\n⏱️ Limite des résultats :\n";
+$results = $trie->search('p', null, 2);
+$words = array_map(fn($r) => $r->word, $results->toArray());
+echo "  'p' (limit=2) → " . implode(', ', $words) . "\n";
 
 // 8. Nettoyage
+echo "\n🧹 Nettoyage...\n";
 $trie->clear();
-echo "8. ✓ Trie vidé\n";
+echo "  ✓ Trie vidé\n";
 
-$emptyResults = $trie->search('la');
-echo "  Mots après vidage: " . count($emptyResults) . "\n";
-```
+$empty = $trie->search('php');
+echo "  Recherche après nettoyage : " . count($empty) . " résultats\n";
 
-**Sortie attendue :**
-```
-=== Test du Trie avec contextes ===
-
-2. Insertion de mots:
-  + laravel (framework)
-  + laragon (framework)
-  + large (english)
-  + laptop (english)
-  + bonjour (french)
-  + bonsoir (french)
-  + hello (english)
-  + php (language)
-  + python (language)
-
-3. Recherche avec contexte:
-  'lar' (framework): laravel, laragon
-  'bon' (french): bonjour, bonsoir
-  'hel' (english): hello
-  'p' (language): php, python
-
-4. Recherche sans contexte (tous):
-  'la': laravel (framework), laragon (framework), large (english), laptop (english)
-
-5. Insertion par lot avec contexte:
-  + react, vue, angular (framework)
-
-6. Recherche par lot:
-  'r': react
-  'v': vue
-  'a': angular
-
-7. Test de persistance:
-  Mots en 'la' (framework) après récupération: laravel, laragon
-
-8. ✓ Trie vidé
-  Mots après vidage: 0
+// Exemple de sortie :
+// 🌳 DÉMONSTRATION TRIE
+// ═══════════════════════
+// 
+// 📝 Insertion de mots :
+//   + php
+//   + python
+//   + pandas
+//   + laravel
+//   + laragon
+//   + laptop
+// 
+// 🔍 Recherche par préfixe :
+//   'la' → laravel, laragon, laptop
+//   'py' → python
+//   'p' → php, python, pandas
+// 
+// 📚 Insertion avec contexte :
+//   + php (language)
+//   + phpstorm (ide)
+//   + phpunit (tool)
+//   + javascript (language)
+// 
+// 🔎 Recherche par contexte :
+//   language (1) : php
+//   ide (1) : phpstorm
+//   tool (1) : phpunit
+// 
+// 📦 Opérations batch :
+//   ✓ Insertion batch effectuée
+//   language:gol → golang
+//   tool:doc → docker
+//   tool:kub → kubernetes
+// 
+// ⏱️ Limite des résultats :
+//   'p' (limit=2) → php, python
+// 
+// 🧹 Nettoyage...
+//   ✓ Trie vidé
+//   Recherche après nettoyage : 0 résultats
 ```
 
 ## Voir aussi
 
-- `TrieInterface` - Interface du Trie
-- `TrieRecord` - Record pour les mots
-- `TrieResultRecord` - Record pour les résultats
-- `TrieCollection` - Collection de mots
-- `TrieResultCollection` - Collection de résultats
-- `StorageInterface` - Interface de persistance
-- `MemoryStorage` - Implémentation mémoire du storage
-- `BKTree` - Structure pour la correction orthographique
-- `BloomFilter` - Structure pour le test d'existence
+- [`bk-tree`](bk-tree.md) - Recherche floue par distance de Levenshtein
+- [`bloom-filter`](bloom-filter.md) - Test probabiliste d'appartenance
+- [`count-min-sketch`](count-min-sketch.md) - Compteur probabiliste de fréquences
+- [`hyper-log-log`](hyper-log-log.md) - Estimation de cardinalité
+- [`top-k`](top-k.md) - Suivi des éléments les plus fréquents

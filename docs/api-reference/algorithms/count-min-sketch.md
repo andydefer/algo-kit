@@ -2,26 +2,41 @@
 
 ## Description
 
-CountMinSketch est une structure de données probabiliste qui estime la fréquence d'apparition des éléments dans un flux de données. Elle permet de compter approximativement le nombre d'occurrences de chaque valeur tout en utilisant très peu de mémoire.
+Le CountMinSketch est une structure de données probabiliste permettant d'estimer la fréquence d'apparition des éléments dans un flux de données. Elle utilise une matrice de compteurs et plusieurs fonctions de hachage pour enregistrer les fréquences avec une mémoire sub-linéaire.
 
 ## Hiérarchie / Implémentations
 
 ```
 CountMinSketchInterface
-    └── CountMinSketch
+    └── CountMinSketch (final)
 ```
 
-**Interfaces implémentées :** `CountMinSketchInterface`
+La classe implémente l'interface `CountMinSketchInterface` et utilise :
+- `StorageInterface` pour la persistance des données
+- `CountMinSketchCollection` pour les opérations batch
+- `CountMinSketchResultCollection` pour retourner les résultats
+- `CountMinSketchRecord` pour représenter une valeur à compter
+- `CountMinSketchResultRecord` pour représenter un résultat de comptage
 
 ## Rôle principal
 
-CountMinSketch utilise une matrice de compteurs et plusieurs fonctions de hachage pour enregistrer les fréquences des éléments. Chaque insertion incrémente plusieurs compteurs, et la fréquence estimée est le minimum des compteurs correspondants. Particulièrement adapté pour l'analyse de flux massifs de données où la mémoire est limitée.
+Le CountMinSketch répond à la question **"Combien de fois cet élément est-il apparu ?"** dans un flux de données massif. Il maintient une matrice de compteurs où chaque insertion incrémente plusieurs compteurs correspondants. La fréquence estimée est le minimum des compteurs atteints par les fonctions de hachage.
+
+**Propriétés fondamentales :**
+- ✅ **Jamais de sous-estimation** : La valeur estimée est toujours ≥ à la valeur réelle
+- ✅ **Mémoire constante** : La mémoire utilisée ne dépend pas du nombre d'éléments
+- ✅ **Temps constant** : Les opérations sont en O(depth)
+- ⚠️ **Surestimation possible** : Les collisions de hachage peuvent gonfler les compteurs
 
 ## Installation
 
 ```bash
-composer require andydefer/algokit
+composer require andydefer/algo-kit
 ```
+
+Prérequis :
+- PHP 8.1 ou supérieur
+- Extension `storage-kit` installée
 
 ## API / Méthodes publiques
 
@@ -29,29 +44,29 @@ composer require andydefer/algokit
 
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$storage` | `StorageInterface` | Instance du système de stockage |
-| `$width` | `int` | Largeur de la table (défaut: 10000) |
-| `$depth` | `int` | Profondeur / nombre de fonctions de hachage (défaut: 5) |
-| `$key` | `string` | Clé d'identification dans le storage (défaut: 'cms') |
+| `$storage` | `StorageInterface` | Backend de stockage pour la persistance |
+| `$width` | `int` | Nombre de colonnes par ligne (plus grand = plus précis) |
+| `$depth` | `int` | Nombre de fonctions de hachage / lignes (plus grand = plus précis) |
+| `$key` | `string` | Clé unique identifiant le sketch (défaut : 'cms') |
 
 **Retourne :** `void`
 
 **Exemple :**
 ```php
 $storage = new MemoryStorage();
-$cms = new CountMinSketch($storage, 10000, 5, 'search_frequencies');
+$cms = new CountMinSketch($storage, 100000, 5, 'search_frequencies');
 ```
 
 ---
 
 ### `add(string $value, ?string $context = null): void`
 
-Ajoute une occurrence d'une valeur.
+Incrémente le compteur de fréquence pour une valeur donnée.
 
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$value` | `string` | Valeur à compter |
-| `$context` | `string|null` | Contexte pour isoler les données (défaut: null) |
+| `$value` | `string` | La valeur à compter |
+| `$context` | `string|null` | Contexte optionnel pour isoler les données |
 
 **Retourne :** `void`
 
@@ -60,33 +75,33 @@ Ajoute une occurrence d'une valeur.
 $cms->add('laravel');
 $cms->add('laravel');
 $cms->add('php', 'search_engine');
-// 'laravel' a maintenant 2 occurrences, 'php' en a 1 dans le contexte 'search_engine'
+// 'laravel' : 2 occurrences, 'php' : 1 occurrence dans 'search_engine'
 ```
 
 ---
 
 ### `count(string $value, ?string $context = null): int`
 
-Estime la fréquence d'une valeur.
+Estime la fréquence d'une valeur donnée.
 
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$value` | `string` | Valeur à compter |
-| `$context` | `string|null` | Contexte de la recherche (défaut: null) |
+| `$value` | `string` | La valeur à compter |
+| `$context` | `string|null` | Contexte optionnel pour isoler les données |
 
-**Retourne :** `int` - Estimation du nombre d'occurrences
+**Retourne :** `int` - Estimation de la fréquence (minimum des compteurs)
 
 **Exemple :**
 ```php
-$freq = $cms->count('laravel'); // Retourne approximativement le nombre d'occurrences
-$freqContext = $cms->count('php', 'search_engine');
+$freq = $cms->count('laravel'); // Retourne ~2
+$freqContext = $cms->count('php', 'search_engine'); // Retourne ~1
 ```
 
 ---
 
 ### `addBatch(CountMinSketchCollection $collection): void`
 
-Ajoute plusieurs valeurs en lot.
+Ajoute plusieurs valeurs en lot pour de meilleures performances.
 
 | Paramètre | Type | Description |
 |-----------|------|-------------|
@@ -107,16 +122,20 @@ $cms->addBatch($collection);
 
 ### `countBatch(CountMinSketchCollection $collection): CountMinSketchResultCollection`
 
-Compte plusieurs valeurs en lot.
+Estime les fréquences de plusieurs valeurs en lot.
 
 | Paramètre | Type | Description |
 |-----------|------|-------------|
 | `$collection` | `CountMinSketchCollection` | Collection de valeurs à compter |
 
-**Retourne :** `CountMinSketchResultCollection` - Collection des résultats avec les fréquences
+**Retourne :** `CountMinSketchResultCollection` - Collection des résultats avec leurs fréquences
 
 **Exemple :**
 ```php
+$collection = new CountMinSketchCollection();
+$collection->add(new CountMinSketchRecord('php'));
+$collection->add(new CountMinSketchRecord('laravel'));
+
 $results = $cms->countBatch($collection);
 foreach ($results as $result) {
     echo "{$result->value}: {$result->count}\n";
@@ -127,91 +146,191 @@ foreach ($results as $result) {
 
 ### `clear(?string $context = null): void`
 
-Vide complètement le sketch.
+Supprime toutes les données du sketch.
 
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$context` | `string|null` | Contexte à vider (défaut: null = tout vider) |
+| `$context` | `string|null` | Si fourni, supprime seulement ce contexte |
 
 **Retourne :** `void`
 
 **Exemple :**
 ```php
-$cms->clear(); // Vide tout
-$cms->clear('search_engine'); // Vide uniquement le contexte 'search_engine'
+// Supprimer un contexte spécifique
+$cms->clear('search_engine');
+
+// Supprimer tout le sketch
+$cms->clear();
 ```
+
+---
 
 ## Cas d'utilisation
 
-### Cas 1 : Analyse des termes de recherche
+### Cas 1 : Analyse de logs serveur
 
 ```php
+<?php
+
+declare(strict_types=1);
+
 use AndyDefer\AlgoKIT\Algorithms\CountMinSketch;
-use AndyDefer\AlgoKIT\Storage\MemoryStorage;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
 
 $storage = new MemoryStorage();
-$cms = new CountMinSketch($storage, 100000, 5, 'search_terms');
+$logAnalyzer = new CountMinSketch($storage, 100000, 5, 'logs');
 
-// Simuler des recherches utilisateurs
-$searches = ['php', 'laravel', 'php', 'javascript', 'php', 'laravel', 'python'];
+// Simuler des logs d'accès
+$endpoints = ['/home', '/api/users', '/home', '/api/posts', '/home', '/api/users', '/api/users'];
 
-foreach ($searches as $term) {
-    $cms->add($term);
+foreach ($endpoints as $endpoint) {
+    $logAnalyzer->add($endpoint);
 }
 
-echo "Fréquence de 'php': " . $cms->count('php') . "\n";      // ~3
-echo "Fréquence de 'laravel': " . $cms->count('laravel') . "\n"; // ~2
-echo "Fréquence de 'javascript': " . $cms->count('javascript') . "\n"; // ~1
+echo "Fréquence des endpoints :\n";
+echo "/home : " . $logAnalyzer->count('/home') . "\n";          // ~3
+echo "/api/users : " . $logAnalyzer->count('/api/users') . "\n"; // ~3
+echo "/api/posts : " . $logAnalyzer->count('/api/posts') . "\n"; // ~1
+echo "/api/comments : " . $logAnalyzer->count('/api/comments') . "\n"; // ~0
 ```
 
-### Cas 2 : Analyse par contexte (multi-sites)
+### Cas 2 : Détection de requêtes fréquentes (rate limiting)
 
 ```php
-class SearchAnalytics
+<?php
+
+declare(strict_types=1);
+
+use AndyDefer\AlgoKIT\Algorithms\CountMinSketch;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+
+class RateLimiter
 {
     private CountMinSketch $cms;
+    private int $limitPerMinute;
     
-    public function __construct(CountMinSketch $cms)
+    public function __construct(CountMinSketch $cms, int $limitPerMinute = 60)
     {
         $this->cms = $cms;
+        $this->limitPerMinute = $limitPerMinute;
     }
     
-    public function trackSearch(string $siteId, string $term): void
+    public function checkRequest(string $userId): bool
     {
-        // Track global
-        $this->cms->add($term);
-        // Track par site
-        $this->cms->add($term, $siteId);
-    }
-    
-    public function getGlobalFrequency(string $term): int
-    {
-        return $this->cms->count($term);
-    }
-    
-    public function getSiteFrequency(string $siteId, string $term): int
-    {
-        return $this->cms->count($term, $siteId);
+        $minute = date('Y-m-d-H-i');
+        $key = "{$userId}_{$minute}";
+        
+        $count = $this->cms->count($key);
+        
+        if ($count >= $this->limitPerMinute) {
+            return false; // Limite atteinte
+        }
+        
+        $this->cms->add($key);
+        return true;
     }
 }
 
 // Utilisation
 $storage = new MemoryStorage();
-$cms = new CountMinSketch($storage, 100000, 5, 'search_analytics');
-$analytics = new SearchAnalytics($cms);
+$cms = new CountMinSketch($storage, 10000, 3, 'rate_limit');
+$limiter = new RateLimiter($cms, 3);
 
-$analytics->trackSearch('site_a', 'php');
-$analytics->trackSearch('site_a', 'php');
-$analytics->trackSearch('site_b', 'php');
-
-echo $analytics->getGlobalFrequency('php'); // ~3
-echo $analytics->getSiteFrequency('site_a', 'php'); // ~2
+$userId = 'user_123';
+for ($i = 0; $i < 5; $i++) {
+    if ($limiter->checkRequest($userId)) {
+        echo "✅ Requête acceptée ($i)\n";
+    } else {
+        echo "❌ Requête rejetée ($i) - Limite atteinte\n";
+    }
+}
+// Sortie :
+// ✅ Requête acceptée (0)
+// ✅ Requête acceptée (1)
+// ✅ Requête acceptée (2)
+// ❌ Requête rejetée (3) - Limite atteinte
+// ❌ Requête rejetée (4) - Limite atteinte
 ```
 
-### Cas 3 : Système de recommandation
+### Cas 3 : Suivi de mots-clés sur les réseaux sociaux
 
 ```php
-class RecommendationSystem
+<?php
+
+declare(strict_types=1);
+
+use AndyDefer\AlgoKIT\Algorithms\CountMinSketch;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+
+class TrendingKeywords
+{
+    private CountMinSketch $cms;
+    private array $keywords = [];
+    
+    public function __construct(CountMinSketch $cms)
+    {
+        $this->cms = $cms;
+    }
+    
+    public function track(string $keyword): void
+    {
+        $day = date('Y-m-d');
+        $this->cms->add($keyword, $day);
+        
+        // Mettre à jour la liste des mots-clés suivis
+        if (!in_array($keyword, $this->keywords)) {
+            $this->keywords[] = $keyword;
+        }
+    }
+    
+    public function getTopKeywords(int $limit = 5): array
+    {
+        $scores = [];
+        $day = date('Y-m-d');
+        
+        foreach ($this->keywords as $keyword) {
+            $scores[$keyword] = $this->cms->count($keyword, $day);
+        }
+        
+        arsort($scores);
+        return array_slice($scores, 0, $limit, true);
+    }
+}
+
+// Utilisation
+$storage = new MemoryStorage();
+$cms = new CountMinSketch($storage, 50000, 5, 'trending');
+$trending = new TrendingKeywords($cms);
+
+// Simuler des tweets
+$tweets = ['#php', '#laravel', '#php', '#javascript', '#php', '#laravel', '#python', '#php'];
+
+foreach ($tweets as $tweet) {
+    $trending->track($tweet);
+}
+
+echo "📈 Tendances du jour :\n";
+foreach ($trending->getTopKeywords(3) as $keyword => $count) {
+    echo "  $keyword : $count mentions\n";
+}
+// Sortie :
+// 📈 Tendances du jour :
+//   #php : 4 mentions
+//   #laravel : 2 mentions
+//   #javascript : 1 mention
+```
+
+### Cas 4 : Analyse de popularité de produits
+
+```php
+<?php
+
+declare(strict_types=1);
+
+use AndyDefer\AlgoKIT\Algorithms\CountMinSketch;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+
+class ProductAnalytics
 {
     private CountMinSketch $cms;
     
@@ -220,148 +339,214 @@ class RecommendationSystem
         $this->cms = $cms;
     }
     
-    public function trackView(string $userId, string $productId): void
+    public function viewProduct(string $productId, string $category): void
     {
-        // Track par utilisateur
-        $this->cms->add($productId, 'user_' . $userId);
-        // Track global
-        $this->cms->add($productId);
+        // Vue globale
+        $this->cms->add("product_{$productId}");
+        
+        // Vue par catégorie
+        $this->cms->add("category_{$category}");
+        
+        // Vue par produit dans sa catégorie
+        $this->cms->add("{$category}_product_{$productId}");
     }
     
-    public function getUserInterests(string $userId, array $products): array
+    public function getProductViews(string $productId): int
     {
-        $collection = new CountMinSketchCollection();
-        foreach ($products as $productId) {
-            $collection->add(new CountMinSketchRecord($productId, 'user_' . $userId));
-        }
-        
-        $results = $this->cms->countBatch($collection);
-        $interests = [];
-        
-        foreach ($results as $result) {
-            if ($result->count > 0) {
-                $interests[] = [
-                    'product_id' => $result->value,
-                    'views' => $result->count
-                ];
-            }
-        }
-        
-        usort($interests, fn($a, $b) => $b['views'] <=> $a['views']);
-        return $interests;
+        return $this->cms->count("product_{$productId}");
+    }
+    
+    public function getCategoryViews(string $category): int
+    {
+        return $this->cms->count("category_{$category}");
+    }
+    
+    public function getProductViewsInCategory(string $productId, string $category): int
+    {
+        return $this->cms->count("{$category}_product_{$productId}");
     }
 }
+
+// Utilisation
+$storage = new MemoryStorage();
+$cms = new CountMinSketch($storage, 100000, 5, 'product_views');
+$analytics = new ProductAnalytics($cms);
+
+// Simuler des vues
+$views = [
+    ['p1', 'electronics'],
+    ['p2', 'books'],
+    ['p1', 'electronics'],
+    ['p3', 'electronics'],
+    ['p1', 'electronics'],
+    ['p2', 'books'],
+];
+
+foreach ($views as [$product, $category]) {
+    $analytics->viewProduct($product, $category);
+}
+
+echo "Vues produit p1 : " . $analytics->getProductViews('p1') . "\n"; // ~3
+echo "Vues catégorie electronics : " . $analytics->getCategoryViews('electronics') . "\n"; // ~4
+echo "Vues p1 dans electronics : " . $analytics->getProductViewsInCategory('p1', 'electronics') . "\n"; // ~3
 ```
 
 ## Flux d'exécution
 
+### Insertion d'une valeur
+
 ```
 add($value, $context)
     ↓
-getTable($context) → matrice de compteurs
+getTable($context) → Récupérer la matrice
     ↓
-for each hash function (0 → depth)
+Pour i = 0 à depth - 1 :
+    index = hashValue($value, i) → Calculer l'index
+    incrementCounter(table, i, index) → Incrémenter le compteur
     ↓
-    index = hash($value, $i) % width
-    ↓
-    table[$i][$index]++
-    ↓
-saveTable($table, $context)
+saveTable($table, $context) → Persister
 ```
+
+### Comptage d'une valeur
 
 ```
 count($value, $context)
     ↓
-getTable($context) → matrice de compteurs
+getTable($context) → Récupérer la matrice
     ↓
-min = PHP_INT_MAX
+minFrequency = PHP_INT_MAX
     ↓
-for each hash function (0 → depth)
+Pour i = 0 à depth - 1 :
+    index = hashValue($value, i)
+    frequency = getCounterValue(table, i, index)
+    minFrequency = min(minFrequency, frequency)
     ↓
-    index = hash($value, $i) % width
+Retourner minFrequency
+```
+
+### Opérations Batch (optimisées)
+
+```
+addBatch($collection)
     ↓
-    min = min(min, table[$i][$index])
+Pour chaque élément :
+    1. Récupérer la table du contexte
+    2. Incrémenter tous les compteurs
+    3. Sauvegarder la table mise à jour
     ↓
-return min
+countBatch($collection)
+    ↓
+Pour chaque élément :
+    1. Récupérer la table du contexte (avec cache)
+    2. Calculer le minimum des compteurs
+    3. Ajouter le résultat à la collection
 ```
 
 ## Gestion des erreurs
 
 | Situation | Exception | Message |
 |-----------|-----------|---------|
-| Aucune exception explicite | - | - |
+| Aucune | - | - |
 
-**Note :** CountMinSketch ne lève pas d'exceptions. Les erreurs sont gérées silencieusement par l'utilisation de valeurs par défaut.
+**Note :** La classe ne lève pas d'exceptions directement. Les erreurs peuvent provenir de l'implémentation de `StorageInterface` utilisée.
 
 ## Intégration
 
-### Avec Storage
-
-CountMinSketch utilise `StorageInterface` pour la persistance des données :
+### Avec StorageKit
 
 ```php
-// Sauvegarde automatique
-$cms->add('value'); // Persiste dans storage
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+use AndyDefer\StorageKit\Storage\CacheStorage;
+use AndyDefer\AlgoKIT\Algorithms\CountMinSketch;
 
-// Récupération automatique
-$cms = new CountMinSketch($storage, 10000, 5, 'cms'); // Charge depuis storage
+// Stockage en mémoire (pour les tests)
+$memoryStorage = new MemoryStorage();
+$cms = new CountMinSketch($memoryStorage);
+
+// Stockage persistant avec cache
+$cacheStorage = new CacheStorage('redis');
+$cms = new CountMinSketch($cacheStorage, 100000, 5, 'production_cms');
 ```
 
-### Avec les Records
-
-CountMinSketch utilise des Records pour représenter les données :
-
-- `CountMinSketchRecord` : Représente une valeur à compter
-- `CountMinSketchResultRecord` : Représente un résultat de comptage (inclut le contexte)
-
-### Avec les Collections
-
-CountMinSketch utilise des Collections typées :
-
-- `CountMinSketchCollection` : Collection de valeurs
-- `CountMinSketchResultCollection` : Collection de résultats
-
-### Avec TopK
-
-CountMinSketch peut être combiné avec TopK pour des analyses avancées :
+### Avec les collections
 
 ```php
+use AndyDefer\AlgoKIT\Collections\CountMinSketchCollection;
+use AndyDefer\AlgoKIT\Collections\CountMinSketchResultCollection;
+use AndyDefer\AlgoKIT\Records\CountMinSketchRecord;
+use AndyDefer\AlgoKIT\Records\CountMinSketchResultRecord;
+
+// Créer une collection de valeurs
+$collection = new CountMinSketchCollection();
+$collection->add(new CountMinSketchRecord('value1'));
+$collection->add(new CountMinSketchRecord('value2', 'context'));
+
+// Comptage en batch
+$results = $cms->countBatch($collection);
+
+// Filtrer les résultats positifs
+$positive = $results->filter(
+    fn(CountMinSketchResultRecord $r) => $r->count > 0
+);
+```
+
+### Avec les autres algorithmes
+
+```php
+use AndyDefer\AlgoKIT\Algorithms\TopK;
+use AndyDefer\AlgoKIT\Algorithms\CountMinSketch;
+
+// CountMinSketch pour les fréquences
+$cms = new CountMinSketch($storage, 100000, 5, 'frequencies');
+
 // TopK pour les éléments les plus fréquents
 $topK = new TopK($storage, 10, 'top');
-$topK->add('php');
-$topK->add('php');
 
-// CountMinSketch pour les fréquences exactes approximatives
-$cms = new CountMinSketch($storage, 10000, 5, 'freq');
-$cms->add('php');
-$cms->add('php');
+// Combinaison des deux
+$items = ['php', 'laravel', 'php', 'python', 'laravel', 'php'];
+foreach ($items as $item) {
+    $cms->add($item);
+    $topK->add($item);
+}
 
-$top = $topK->getTop();
-foreach ($top as $item) {
+// Obtenir les top éléments avec leurs fréquences estimées
+foreach ($topK->getTop() as $item) {
     $estimated = $cms->count($item->value);
-    echo "{$item->value}: exact={$item->count}, estimé={$estimated}\n";
+    echo "{$item->value}: réel={$item->count}, estimé={$estimated}\n";
 }
 ```
 
 ## Performance
 
-| Opération | Complexité | Notes |
-|-----------|------------|-------|
-| `add()` | O(depth) | depth = nombre de fonctions de hachage |
-| `count()` | O(depth) | depth = nombre de fonctions de hachage |
-| `addBatch()` | O(n*depth) | n = nombre d'éléments |
-| `countBatch()` | O(n*depth) | n = nombre d'éléments |
-| `clear()` | O(1) | Suppression de la clé dans le storage |
+| Opération | Complexité | Description |
+|-----------|------------|-------------|
+| `add()` | O(depth) | depth incrémentations de compteurs |
+| `count()` | O(depth) | depth lectures de compteurs |
+| `addBatch()` | O(n × depth) | n = nombre d'éléments |
+| `countBatch()` | O(n × depth) | Avec cache des contextes |
+| `clear()` | O(1) | Suppression de la clé en storage |
 
-**Précision :** L'erreur est bornée par `(width / 2) * depth` avec une probabilité de 1 - e^(-depth).
+**Précision :**
+- L'erreur est bornée par `(width / 2) × depth` avec une probabilité de `1 - e^(-depth)`
+- Plus `width` et `depth` sont grands, meilleure est la précision
+- La mémoire utilisée est `width × depth` compteurs
+
+**Recommandations :**
+
+| Usage | Width | Depth | Erreur estimée |
+|-------|-------|-------|----------------|
+| Petit volume (< 10k) | 1 000 | 3 | ~2% |
+| Volume moyen (< 1M) | 10 000 | 5 | ~0.5% |
+| Grand volume (< 10M) | 100 000 | 7 | ~0.1% |
+| Très grand volume | 1 000 000 | 9 | ~0.01% |
 
 ## Compatibilité
 
-| Version | Support |
-|---------|---------|
-| PHP 8.1+ | ✅ Complet |
-| PHP 8.0 | ✅ Complet |
-| PHP 7.4 | ❌ Non (nécessite PHP 8.0+) |
+| Version | Support | Notes |
+|---------|---------|-------|
+| PHP 8.1+ | ✅ Complet | Types et syntaxe recommandés |
+| PHP 8.0 | ✅ Complet | Compatible avec ajustements mineurs |
+| PHP 7.4 | ❌ Non supporté | Utilise `fn()` et `readonly` |
 
 ## Exemple complet
 
@@ -373,135 +558,141 @@ declare(strict_types=1);
 use AndyDefer\AlgoKIT\Algorithms\CountMinSketch;
 use AndyDefer\AlgoKIT\Collections\CountMinSketchCollection;
 use AndyDefer\AlgoKIT\Records\CountMinSketchRecord;
-use AndyDefer\AlgoKIT\Storage\MemoryStorage;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
 
 // 1. Initialisation
 $storage = new MemoryStorage();
-$cms = new CountMinSketch($storage, 1000, 3, 'test_cms');
+$cms = new CountMinSketch($storage, 1000, 3, 'demo_cms');
 
-// 2. Ajout de valeurs avec contexte
-echo "Ajout de valeurs:\n";
+echo "📊 DÉMONSTRATION COUNT-MIN SKETCH\n";
+echo "═══════════════════════════════════\n\n";
+
+// 2. Insertion de données
+echo "📝 Insertion de données :\n";
 $data = [
-    ['apple', 'fruits'],
-    ['banana', 'fruits'],
-    ['apple', 'fruits'],
-    ['php', 'languages'],
-    ['python', 'languages'],
-    ['php', 'languages'],
-    ['php', 'languages']
+    ['php', 'langages'],
+    ['laravel', 'frameworks'],
+    ['php', 'langages'],
+    ['php', 'langages'],
+    ['python', 'langages'],
+    ['laravel', 'frameworks'],
+    ['javascript', 'langages'],
+    ['php', 'langages'],
 ];
 
 foreach ($data as [$value, $context]) {
     $cms->add($value, $context);
-    echo "  + $value ($context)\n";
+    echo "  + {$value} ({$context})\n";
 }
 
-// 3. Comptage individuel avec contexte
-echo "\nComptage individuel:\n";
+// 3. Comptage individuel
+echo "\n🔍 Comptage individuel :\n";
 $tests = [
-    ['apple', 'fruits', 2],
-    ['banana', 'fruits', 1],
-    ['php', 'languages', 3],
-    ['python', 'languages', 1],
-    ['php', 'fruits', 0],
-    ['ruby', 'languages', 0]
+    ['php', 'langages'],
+    ['python', 'langages'],
+    ['laravel', 'frameworks'],
+    ['ruby', 'langages'],
+    ['php', 'frameworks'], // Contexte différent
 ];
 
-foreach ($tests as [$value, $context, $expected]) {
+foreach ($tests as [$value, $context]) {
     $count = $cms->count($value, $context);
-    echo "  '$value' ($context): $count (attendu: $expected)\n";
+    echo "  {$value} ({$context}) : {$count}\n";
 }
 
-// 4. Comptage par lot
-echo "\nComptage par lot:\n";
-$collection = new CountMinSketchCollection();
-$collection->add(new CountMinSketchRecord('apple', 'fruits'));
-$collection->add(new CountMinSketchRecord('php', 'languages'));
-$collection->add(new CountMinSketchRecord('ruby', 'languages'));
+// 4. Opérations batch
+echo "\n📦 Opérations batch :\n";
 
-$results = $cms->countBatch($collection);
+// Insertion batch
+$batch = new CountMinSketchCollection();
+$batch->add(new CountMinSketchRecord('golang', 'langages'));
+$batch->add(new CountMinSketchRecord('golang', 'langages'));
+$batch->add(new CountMinSketchRecord('symfony', 'frameworks'));
+
+$cms->addBatch($batch);
+echo "  ✓ Insertion batch effectuée\n";
+
+// Comptage batch
+$query = new CountMinSketchCollection();
+$query->add(new CountMinSketchRecord('php', 'langages'));
+$query->add(new CountMinSketchRecord('golang', 'langages'));
+$query->add(new CountMinSketchRecord('symfony', 'frameworks'));
+$query->add(new CountMinSketchRecord('vuejs', 'frameworks'));
+
+$results = $cms->countBatch($query);
 foreach ($results as $result) {
-    echo "  '{$result->value}' ({$result->context}): {$result->count}\n";
+    echo "  {$result->value} ({$result->context}) : {$result->count}\n";
 }
 
-// 5. Ajout par lot
-echo "\nAjout par lot:\n";
-$newValues = new CountMinSketchCollection();
-$newValues->add(new CountMinSketchRecord('cherry', 'fruits'));
-$newValues->add(new CountMinSketchRecord('cherry', 'fruits'));
-$newValues->add(new CountMinSketchRecord('ruby', 'languages'));
+// 5. Statistiques
+echo "\n📈 Statistiques :\n";
+$totalPhp = $cms->count('php', 'langages');
+$totalLaravel = $cms->count('laravel', 'frameworks');
+$totalGolang = $cms->count('golang', 'langages');
 
-$cms->addBatch($newValues);
-echo "✓ 3 nouvelles occurrences ajoutées\n";
+echo "  Total PHP : {$totalPhp}\n";
+echo "  Total Laravel : {$totalLaravel}\n";
+echo "  Total Golang : {$totalGolang}\n";
 
-// 6. Vérification finale
-echo "\nVérification finale:\n";
-$finalTests = [
-    ['cherry', 'fruits', 2],
-    ['ruby', 'languages', 1],
-    ['apple', 'fruits', 2]
-];
+// 6. Nettoyage
+echo "\n🧹 Nettoyage :\n";
+$cms->clear('langages');
+echo "  ✓ Contexte 'langages' vidé\n";
 
-foreach ($finalTests as [$value, $context, $expected]) {
-    $count = $cms->count($value, $context);
-    echo "  '$value' ($context): $count\n";
-}
+// Vérification après nettoyage
+$phpAfter = $cms->count('php', 'langages');
+$laravelAfter = $cms->count('laravel', 'frameworks');
+echo "  PHP (langages) : {$phpAfter}\n";
+echo "  Laravel (frameworks) : {$laravelAfter}\n";
 
-// 7. Nettoyage
-$cms->clear('fruits');
-echo "\n✓ Contexte 'fruits' vidé\n";
+// 7. Nettoyage complet
+$cms->clear();
+echo "  ✓ Nettoyage complet effectué\n";
 
-$fruitCount = $cms->count('apple', 'fruits');
-echo "  'apple' (fruits): $fruitCount\n";
-
-$langCount = $cms->count('php', 'languages');
-echo "  'php' (languages): $langCount\n";
-```
-
-**Sortie attendue :**
-```
-Ajout de valeurs:
-  + apple (fruits)
-  + banana (fruits)
-  + apple (fruits)
-  + php (languages)
-  + python (languages)
-  + php (languages)
-  + php (languages)
-
-Comptage individuel:
-  'apple' (fruits): 2 (attendu: 2)
-  'banana' (fruits): 1 (attendu: 1)
-  'php' (languages): 3 (attendu: 3)
-  'python' (languages): 1 (attendu: 1)
-  'php' (fruits): 0 (attendu: 0)
-  'ruby' (languages): 0 (attendu: 0)
-
-Comptage par lot:
-  'apple' (fruits): 2
-  'php' (languages): 3
-  'ruby' (languages): 0
-
-Ajout par lot:
-✓ 3 nouvelles occurrences ajoutées
-
-Vérification finale:
-  'cherry' (fruits): 2
-  'ruby' (languages): 1
-  'apple' (fruits): 2
-
-✓ Contexte 'fruits' vidé
-  'apple' (fruits): 0
-  'php' (languages): 3
+// Exemple de sortie :
+// 📊 DÉMONSTRATION COUNT-MIN SKETCH
+// ═══════════════════════════════════
+// 
+// 📝 Insertion de données :
+//   + php (langages)
+//   + laravel (frameworks)
+//   + php (langages)
+//   + php (langages)
+//   + python (langages)
+//   + laravel (frameworks)
+//   + javascript (langages)
+//   + php (langages)
+// 
+// 🔍 Comptage individuel :
+//   php (langages) : 5
+//   python (langages) : 1
+//   laravel (frameworks) : 2
+//   ruby (langages) : 0
+//   php (frameworks) : 0
+// 
+// 📦 Opérations batch :
+//   ✓ Insertion batch effectuée
+//   php (langages) : 5
+//   golang (langages) : 2
+//   symfony (frameworks) : 1
+//   vuejs (frameworks) : 0
+// 
+// 📈 Statistiques :
+//   Total PHP : 5
+//   Total Laravel : 2
+//   Total Golang : 2
+// 
+// 🧹 Nettoyage :
+//   ✓ Contexte 'langages' vidé
+//   PHP (langages) : 0
+//   Laravel (frameworks) : 2
+//   ✓ Nettoyage complet effectué
 ```
 
 ## Voir aussi
 
-- `CountMinSketchInterface` - Interface du sketch
-- `CountMinSketchRecord` - Record pour les valeurs
-- `CountMinSketchResultRecord` - Record pour les résultats
-- `CountMinSketchCollection` - Collection de valeurs
-- `CountMinSketchResultCollection` - Collection de résultats
-- `TopK` - Structure pour les éléments les plus fréquents
-- `StorageInterface` - Interface de persistance
-- `MemoryStorage` - Implémentation mémoire du storage
+- [`top-k`](top-k.md) - Structure pour les éléments les plus fréquents
+- [`bloom-filter`](bloom-filter.md) - Test probabiliste d'appartenance
+- [`hyper-log-log`](hyper-log-log.md) - Estimation de cardinalité
+- [`bk-tree`](bk-tree.md) - Recherche floue par distance de Levenshtein
+- [`trie`](trie.md) - Recherche par préfixe

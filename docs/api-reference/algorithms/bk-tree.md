@@ -2,26 +2,36 @@
 
 ## Description
 
-BKTree (Burkhard-Keller Tree) est une structure de données pour la recherche approximative de mots basée sur la distance de Levenshtein. Elle permet de trouver les mots les plus proches d'un mot donné avec une tolérance configurable.
+Le BKTree (Burkhard-Keller Tree) est une structure de données arborescente permettant la recherche approximative de chaînes de caractères basée sur la distance de Levenshtein.
 
 ## Hiérarchie / Implémentations
 
 ```
 TreeInterface
-    └── BKTree
+    └── BKTree (final)
 ```
 
-**Interfaces implémentées :** `TreeInterface`
+La classe implémente l'interface `TreeInterface` et utilise :
+- `StorageInterface` pour la persistance des données
+- `BKTreeNodeCollection` pour gérer les nœuds enfants
+- `BKTreeResultCollection` pour retourner les résultats de recherche
+- `BKTreeNodeRecord` pour représenter les nœuds
+- `BKTreeResultRecord` pour représenter les résultats
 
 ## Rôle principal
 
-BKTree organise les mots dans un arbre où chaque nœud est un mot, et les enfants sont organisés par distance de Levenshtein. Cette structure permet une recherche efficace des mots similaires avec une tolérance de distance donnée, idéale pour les systèmes de correction orthographique et de suggestion.
+Le BKTree permet la **correction orthographique** et la **recherche floue** dans un dictionnaire de mots. Il organise les mots dans une structure où chaque nœud représente un mot, et les arêtes sont étiquetées par la distance de Levenshtein entre les mots. Cette organisation permet des recherches extrêmement efficaces avec une tolérance donnée.
 
 ## Installation
 
 ```bash
-composer require andydefer/algokit
+composer require andydefer/algo-kit
 ```
+
+Prérequis :
+- PHP 8.1 ou supérieur
+- Extension `storage-kit` installée
+- Extension `domain-structures` installée
 
 ## API / Méthodes publiques
 
@@ -29,246 +39,316 @@ composer require andydefer/algokit
 
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$storage` | `StorageInterface` | Instance du système de stockage |
-| `$key` | `string` | Clé d'identification dans le storage (défaut: 'bktree') |
+| `$storage` | `StorageInterface` | Backend de stockage pour la persistance |
+| `$key` | `string` | Clé unique identifiant l'arbre (défaut : 'bktree') |
 
 **Retourne :** `void`
+
+**Exceptions :** Aucune
 
 **Exemple :**
 ```php
 $storage = new MemoryStorage();
-$bkTree = new BKTree($storage, 'my_bktree');
+$bkTree = new BKTree($storage, 'my_dictionary');
 ```
 
 ---
 
 ### `insert(string $word): void`
 
-Insère un mot dans l'arbre.
-
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$word` | `string` | Mot à insérer |
+| `$word` | `string` | Le mot à insérer dans l'arbre |
 
 **Retourne :** `void`
+
+**Exceptions :** Aucune
 
 **Exemple :**
 ```php
 $bkTree->insert('laravel');
-$bkTree->insert('python');
-$bkTree->insert('php');
+$bkTree->insert('laragon');
+$bkTree->insert('large');
 ```
 
 ---
 
 ### `search(string $word, int $tolerance = 2, int $limit = 10): BKTreeResultCollection`
 
-Recherche les mots similaires à un mot donné.
-
 | Paramètre | Type | Description |
 |-----------|------|-------------|
-| `$word` | `string` | Mot à rechercher |
-| `$tolerance` | `int` | Distance maximale autorisée (Levenshtein) |
-| `$limit` | `int` | Nombre maximum de résultats (défaut: 10) |
+| `$word` | `string` | Le mot à rechercher |
+| `$tolerance` | `int` | Distance de Levenshtein maximale autorisée (défaut : 2) |
+| `$limit` | `int` | Nombre maximum de résultats (défaut : 10) |
 
-**Retourne :** `BKTreeResultCollection` - Collection de résultats triés par distance croissante
+**Retourne :** `BKTreeResultCollection` - Collection de mots correspondants avec leurs distances
+
+**Exceptions :** Aucune
 
 **Exemple :**
 ```php
 $results = $bkTree->search('larvel', 2, 5);
-// Retourne les 5 mots les plus proches de 'larvel' avec une distance ≤ 2
+foreach ($results as $result) {
+    echo "{$result->word} (distance: {$result->distance})\n";
+}
+// Sortie :
+// laravel (distance: 1)
+// laragon (distance: 2)
 ```
 
 ---
 
 ### `clear(): void`
 
-Vide complètement l'arbre.
+| Paramètre | Type | Description |
+|-----------|------|-------------|
+| Aucun | - | - |
 
 **Retourne :** `void`
+
+**Exceptions :** Aucune
 
 **Exemple :**
 ```php
 $bkTree->clear();
-// Toutes les données sont supprimées du storage
+// L'arbre est maintenant vide
 ```
+
+---
 
 ## Cas d'utilisation
 
-### Cas 1 : Correction orthographique simple
+### Cas 1 : Correcteur orthographique
 
 ```php
+<?php
+
+declare(strict_types=1);
+
 use AndyDefer\AlgoKIT\Algorithms\BKTree;
-use AndyDefer\AlgoKIT\Storage\MemoryStorage;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
 
 $storage = new MemoryStorage();
-$bkTree = new BKTree($storage);
+$spellChecker = new BKTree($storage, 'dictionary');
 
 // Indexer un dictionnaire
-$words = ['php', 'python', 'javascript', 'laravel', 'symfony', 'react', 'vue'];
+$words = ['php', 'python', 'javascript', 'laravel', 'ruby', 'golang'];
 foreach ($words as $word) {
-    $bkTree->insert($word);
+    $spellChecker->insert($word);
 }
 
-// Correction d'une faute de frappe
-$corrections = $bkTree->search('larvel', 2);
-foreach ($corrections as $result) {
-    echo "{$result->word} (distance: {$result->distance})\n";
+// Suggestion de correction
+$search = 'javascrip';
+$suggestions = $spellChecker->search($search, 2, 3);
+
+echo "Suggestions pour '$search' :\n";
+foreach ($suggestions as $result) {
+    echo "  - {$result->word} (distance: {$result->distance})\n";
 }
-// Sortie: laravel (distance: 1)
+// Sortie :
+// Suggestions pour 'javascrip' :
+//   - javascript (distance: 1)
+//   - laravel (distance: 9)
+//   - python (distance: 8)
 ```
 
-### Cas 2 : Suggestions avec contexte utilisateur
+### Cas 2 : Recherche floue dans un catalogue
 
 ```php
-// Mots fréquemment recherchés par un utilisateur
-$userWords = ['laravel', 'eloquent', 'blade', 'php', 'artisan'];
+<?php
 
-$bkTree = new BKTree($storage, 'user_' . $userId);
+declare(strict_types=1);
 
-foreach ($userWords as $word) {
-    $bkTree->insert($word);
+use AndyDefer\AlgoKIT\Algorithms\BKTree;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+
+$storage = new MemoryStorage();
+$productTree = new BKTree($storage, 'products');
+
+// Indexer les noms de produits
+$products = ['Smartphone', 'Laptop', 'Tablet', 'Headphones', 'Smartwatch'];
+foreach ($products as $product) {
+    $productTree->insert(strtolower($product));
 }
 
-// Suggestions personnalisées
-$typo = 'elokent';
-$suggestions = $bkTree->search($typo, 2, 3);
-// Retourne: eloquent (distance: 2)
+// Recherche avec tolérance élevée
+$query = 'smartfon';
+$results = $productTree->search($query, 3, 5);
+
+echo "Produits similaires à '$query' :\n";
+foreach ($results as $result) {
+    echo "  - " . ucfirst($result->word) . " (distance: {$result->distance})\n";
+}
+// Sortie :
+// Produits similaires à 'smartfon' :
+//   - Smartphone (distance: 2)
+//   - Smartwatch (distance: 3)
 ```
 
-### Cas 3 : Système de recherche avec correction automatique
+### Cas 3 : Détection de plagiat (fingerprinting)
 
 ```php
-class SearchEngine
-{
-    private BKTree $bkTree;
-    
-    public function __construct(BKTree $bkTree)
-    {
-        $this->bkTree = $bkTree;
-    }
-    
-    public function search(string $query): array
-    {
-        // 1. Recherche exacte
-        $results = $this->performExactSearch($query);
-        
-        if (count($results) === 0) {
-            // 2. Correction automatique
-            $suggestions = $this->bkTree->search($query, 2, 5);
-            
-            if (!empty($suggestions)) {
-                // 3. Recherche avec le mot corrigé
-                $corrected = $suggestions->first()->word;
-                $results = $this->performExactSearch($corrected);
-            }
-        }
-        
-        return $results;
-    }
+<?php
+
+declare(strict_types=1);
+
+use AndyDefer\AlgoKIT\Algorithms\BKTree;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+
+$storage = new MemoryStorage();
+$plagiarismTree = new BKTree($storage, 'documents');
+
+// Indexer les phrases connues
+$knownTexts = [
+    'The quick brown fox jumps over the lazy dog',
+    'Lorem ipsum dolor sit amet consectetur',
+    'PHP is a popular general-purpose scripting language',
+];
+
+foreach ($knownTexts as $text) {
+    $plagiarismTree->insert($text);
 }
+
+// Vérifier une nouvelle phrase
+$newText = 'The quick brown fox jumps over the lazy cat';
+$matches = $plagiarismTree->search($newText, 5, 3);
+
+if ($matches->count() > 0) {
+    $best = $matches->first();
+    echo "Texte similaire détecté : {$best->word}\n";
+    echo "Distance : {$best->distance}\n";
+}
+// Sortie :
+// Texte similaire détecté : The quick brown fox jumps over the lazy dog
+// Distance : 3
 ```
 
 ## Flux d'exécution
 
+### Insertion d'un mot
+
 ```
 insert($word)
     ↓
-getRoot() → null?
-    ├── Oui → saveRoot(new BKTreeNodeRecord($word))
-    └── Non → insertNode($root, $word)
-         ↓
-    distance = levenshtein(node->word, $word)
-         ↓
-    distance = 0? → return
-         ↓
-    find existing child? → return
-         ↓
-    find child at distance? → insertNode(child, $word)
-         ↓
-    add new child → children->add(new BKTreeNodeRecord)
-         ↓
+getRoot() → Existe ?
+    ├── NON → createNode($word) → saveRoot() → Fin
+    └── OUI → insertNode($root, $word)
+                ↓
+        calculateDistance($node->word, $word)
+                ↓
+        distance === 0 ?
+            ├── OUI → Fin (mot déjà présent)
+            └── NON → findChildByWord($node, $word)
+                        ↓
+                enfant trouvé ?
+                    ├── OUI → Fin
+                    └── NON → findChildAtDistance($node, $distance)
+                                ↓
+                        enfant trouvé ?
+                            ├── OUI → insertNode($child, $word) (récursif)
+                            └── NON → createNode($word) → add to children
+                ↓
     saveRoot($root)
 ```
+
+### Recherche d'un mot
 
 ```
 search($word, $tolerance, $limit)
     ↓
-getRoot() → null? → return empty collection
-    ↓
-searchNode($root, $word, $tolerance, &$results)
-    ↓
-distance = levenshtein(node->word, $word)
-    ↓
-distance <= tolerance? → add to results
-    ↓
-min = distance - tolerance, max = distance + tolerance
-    ↓
-foreach child where childDistance between min and max
-    ↓
-    searchNode(child, $word, $tolerance, &$results)
-    ↓
-sort results by distance
-    ↓
-return first $limit results
+getRoot() → null ?
+    ├── OUI → Retourner collection vide
+    └── NON → searchNode($root, $word, $tolerance, $results)
+                ↓
+        calculateDistance($node->word, $word)
+                ↓
+        distance <= tolerance ?
+            └── OUI → Ajouter $node à $results
+                ↓
+        minDistance = distance - tolerance
+        maxDistance = distance + tolerance
+                ↓
+        Pour chaque enfant :
+            childDistance = calculateDistance($node->word, $child->word)
+                ↓
+            childDistance entre minDistance et maxDistance ?
+                └── OUI → searchNode($child) (récursif)
+                ↓
+    sortAndLimitResults($results, $limit)
+        ↓
+    Retourner collection triée et limitée
 ```
 
 ## Gestion des erreurs
 
 | Situation | Exception | Message |
 |-----------|-----------|---------|
-| Aucune exception explicite | - | - |
+| Aucune | - | - |
 
-**Note :** BKTree n'utilise pas d'exceptions pour son fonctionnement normal. Les erreurs potentielles sont gérées silencieusement (ex: recherche sur un arbre vide → collection vide).
+**Note :** La classe ne lève pas d'exceptions directement. Les erreurs potentielles peuvent provenir de l'implémentation de `StorageInterface` utilisée.
 
 ## Intégration
 
-### Avec Storage
-
-BKTree utilise `StorageInterface` pour la persistance des données :
+### Avec StorageKit
 
 ```php
-// Sauvegarde automatique
-$bkTree->insert('laravel'); // Persiste dans storage
+use AndyDefer\StorageKit\Storage\MemoryStorage;
+use AndyDefer\StorageKit\Storage\CacheStorage;
+use AndyDefer\AlgoKIT\Algorithms\BKTree;
 
-// Récupération automatique
-$bkTree = new BKTree($storage, 'bktree'); // Charge depuis storage
+// Stockage en mémoire (non persistant)
+$memoryStorage = new MemoryStorage();
+$bkTree = new BKTree($memoryStorage);
+
+// Stockage avec cache (persistant)
+$cacheStorage = new CacheStorage('redis');
+$bkTree = new BKTree($cacheStorage, 'spell_checker');
 ```
 
-### Avec les Records
+### Avec les collections
 
-BKTree utilise des Records pour représenter les données :
+```php
+use AndyDefer\AlgoKIT\Collections\BKTreeResultCollection;
+use AndyDefer\AlgoKIT\Records\BKTreeResultRecord;
 
-- `BKTreeNodeRecord` : Représente un nœud de l'arbre
-- `BKTreeResultRecord` : Représente un résultat de recherche
+$results = $bkTree->search('word', 2, 5);
 
-### Avec les Collections
+// Itération
+foreach ($results as $result) {
+    echo "{$result->word} (distance: {$result->distance})";
+}
 
-BKTree utilise des Collections typées :
-
-- `BKTreeNodeCollection` : Collection de nœuds
-- `BKTreeResultCollection` : Collection de résultats
+// Filtrage
+$goodMatches = $results->filter(
+    fn(BKTreeResultRecord $r) => $r->distance <= 1
+);
+```
 
 ## Performance
 
-| Opération | Complexité | Notes |
-|-----------|------------|-------|
-| `insert()` | O(log n) * | Dépend de la distribution des mots |
-| `search()` | O(n) | Parcourt les nœuds dans la plage de tolérance |
-| `clear()` | O(1) | Suppression de la clé dans le storage |
+| Opération | Complexité | Description |
+|-----------|------------|-------------|
+| `insert()` | O(log n) * O(1) | Insertion avec recherche binaire guidée par les distances |
+| `search()` | O(n^α) | α varie selon la tolérance et la distribution des mots |
+| `clear()` | O(1) | Suppression de la clé en storage |
+
+**Caractéristiques :**
+- La recherche est **beaucoup plus rapide** qu'une recherche linéaire
+- Plus la tolérance est faible, plus la recherche est rapide
+- Les performances dépendent de l'implémentation du storage (MemoryStorage est plus rapide que les storages persistants)
 
 **Optimisations :**
-- La tolérance réduit le nombre de nœuds parcourus
-- La structure de l'arbre permet de sauter des branches entières
-- `levenshtein()` est la fonction coûteuse (O(m*n) sur les mots)
+- Utilisation de `levenshtein()` optimisée en C (native PHP)
+- Pas de calcul redondant : les distances sont calculées uniquement lorsque nécessaire
+- Stockage persistant avec l'interface `StorageInterface`
 
 ## Compatibilité
 
-| Version | Support |
-|---------|---------|
-| PHP 8.1+ | ✅ Complet |
-| PHP 8.0 | ✅ Complet |
-| PHP 7.4 | ❌ Non (nécessite PHP 8.0+) |
+| Version | Support | Notes |
+|---------|---------|-------|
+| PHP 8.1+ | ✅ Complet | Types et syntaxe recommandés |
+| PHP 8.0 | ✅ Complet | Compatible avec ajustements mineurs |
+| PHP 7.4 | ❌ Non supporté | Utilise `fn()` et `readonly` |
 
 ## Exemple complet
 
@@ -278,74 +358,58 @@ BKTree utilise des Collections typées :
 declare(strict_types=1);
 
 use AndyDefer\AlgoKIT\Algorithms\BKTree;
-use AndyDefer\AlgoKIT\Storage\MemoryStorage;
+use AndyDefer\AlgoKIT\Records\BKTreeResultRecord;
+use AndyDefer\StorageKit\Storage\MemoryStorage;
 
 // 1. Initialisation
 $storage = new MemoryStorage();
-$bkTree = new BKTree($storage, 'dictionary');
+$bkTree = new BKTree($storage, 'fruits');
 
-// 2. Indexation du dictionnaire
-$dictionary = [
-    'php', 'python', 'javascript', 'typescript',
-    'laravel', 'symfony', 'react', 'vue',
-    'docker', 'kubernetes', 'redis', 'postgresql'
-];
-
-foreach ($dictionary as $word) {
-    $bkTree->insert($word);
+// 2. Indexation
+$fruits = ['pomme', 'poire', 'banane', 'orange', 'kiwi', 'mangue'];
+foreach ($fruits as $fruit) {
+    $bkTree->insert($fruit);
 }
 
-// 3. Correction de fautes
-$typos = [
-    'larvel' => 'laravel',
-    'pyton' => 'python',
-    'javascrpt' => 'javascript',
-    'symfony' => 'symfony'
-];
+// 3. Recherche floue
+$searchTerm = 'pome';
+$results = $bkTree->search($searchTerm, 2, 3);
 
-foreach ($typos as $typo => $expected) {
-    $results = $bkTree->search($typo, 2, 1);
-    
-    if ($results->isNotEmpty()) {
-        $suggestion = $results->first()->word;
-        $distance = $results->first()->distance;
-        
-        echo "Typo: '$typo' → Suggestion: '$suggestion' (distance: $distance)\n";
-    } else {
-        echo "Typo: '$typo' → Aucune suggestion\n";
+// 4. Affichage des résultats
+echo "Recherche de '$searchTerm' :\n";
+echo "─────────────────────────────\n";
+
+if ($results->isEmpty()) {
+    echo "Aucun résultat trouvé.\n";
+} else {
+    foreach ($results as $result) {
+        $isExact = $result->distance === 0 ? '✓' : ' ';
+        echo "{$isExact} {$result->word} (distance : {$result->distance})\n";
     }
 }
 
-// 4. Recherche avec plusieurs suggestions
-$results = $bkTree->search('dockr', 3, 3);
-echo "\nSuggestions pour 'dockr':\n";
-foreach ($results as $result) {
-    echo "- {$result->word} (distance: {$result->distance})\n";
+// 5. Meilleure correspondance
+$best = $results->first();
+if ($best instanceof BKTreeResultRecord) {
+    echo "\nMeilleure correspondance : {$best->word}\n";
 }
 
-// 5. Nettoyage
+// 6. Nettoyage
 $bkTree->clear();
-```
 
-**Sortie attendue :**
-```
-Typo: 'larvel' → Suggestion: 'laravel' (distance: 1)
-Typo: 'pyton' → Suggestion: 'python' (distance: 1)
-Typo: 'javascrpt' → Suggestion: 'javascript' (distance: 2)
-Typo: 'symfony' → Suggestion: 'symfony' (distance: 0)
-
-Suggestions pour 'dockr':
-- docker (distance: 1)
-- postgresql (distance: 6)
-- kubernetes (distance: 7)
+// Exemple de sortie :
+// Recherche de 'pome' :
+// ─────────────────────────────
+//  pomme (distance : 1)
+//  poire (distance : 2)
+//  
+// Meilleure correspondance : pomme
 ```
 
 ## Voir aussi
 
-- `TreeInterface` - Interface pour les arbres
-- `BKTreeNodeRecord` - Record représentant un nœud
-- `BKTreeResultRecord` - Record pour les résultats
-- `BKTreeNodeCollection` - Collection de nœuds
-- `BKTreeResultCollection` - Collection de résultats
-- `StorageInterface` - Interface de persistance
-- `MemoryStorage` - Implémentation mémoire du storage
+- [`CountMinSketch`](count-min-sketch.md) - Compteur probabiliste de fréquences
+- [`Trie`](trie.md) - Arbre de recherche par préfixe
+- [`BloomFilter`](bloom-filter.md) - Test probabiliste d'appartenance
+- [`HyperLogLog`](hyper-log-log.md) - Estimation de cardinalité
+- [`TopK`](top-k.md) - Suivi des éléments les plus fréquents
