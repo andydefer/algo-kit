@@ -114,6 +114,26 @@ final class TopK implements TopKInterface
     }
 
     /**
+     * Returns the storage backend used by this Top-K instance.
+     *
+     * @return StorageInterface The storage backend
+     */
+    public function getStorage(): StorageInterface
+    {
+        return $this->storage;
+    }
+
+    /**
+     * Returns the storage key used by this Top-K instance.
+     *
+     * @return string The storage key
+     */
+    public function getKey(): string
+    {
+        return $this->key;
+    }
+
+    /**
      * Initializes the storage with empty data structure.
      */
     private function initializeStorage(): void
